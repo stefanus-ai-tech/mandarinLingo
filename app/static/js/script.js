@@ -85,7 +85,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Clear all messages except welcome
     chatHistory.innerHTML = `
       <div class="welcome-message">
-        <div class="welcome-icon">🎌</div>
+        <div class="welcome-icon">🇨🇳</div>
         <h3>Welcome to Mandarin AI Tutor!</h3>
         <p>Start speaking to practice your Mandarin. I'll help you with pronunciation, translation, and conversation.</p>
       </div>
