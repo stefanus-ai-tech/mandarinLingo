@@ -1,3 +1,5 @@
+# python -m uvicorn app.main:app --reload --port 8001
+
 import os
 import uuid
 import asyncio
