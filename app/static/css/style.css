@@ -26,10 +26,15 @@ h1 {
 
 .chat-area {
   margin-bottom: 20px;
-  min-height: 150px; /* Space for the AI response */
+  min-height: 200px; /* Adjusted min-height */
+  max-height: 300px; /* Max height before scrolling */
+  overflow-y: auto; /* Enable vertical scrolling */
   display: flex;
   flex-direction: column;
   align-items: flex-start; /* AI bubbles on the left */
+  border: 1px solid #ddd;
+  padding: 10px;
+  background-color: #f9f9f9;
 }
 
 .response-bubble {
@@ -110,6 +115,29 @@ h1 {
 
 #recordButton:hover {
   background-color: #1558b3;
+}
+
+#clearChatButton {
+  background-color: #6c757d; /* Grey color */
+  color: white;
+  border: none;
+  padding: 12px 20px; /* Adjusted padding */
+  font-size: 1em;
+  border-radius: 25px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  margin-top: 20px;
+  margin-left: 10px; /* Space between buttons */
+}
+
+#clearChatButton:hover {
+  background-color: #5a6268;
+}
+
+.controls-area {
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 #recordButton.recording {

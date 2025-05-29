@@ -1,8 +1,9 @@
 import os
 import uuid
 import asyncio
+import json # Added for parsing chat history
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form # Added Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
@@ -127,22 +128,38 @@ async def async_enumerate(aiterable):
     yield n, item
     n+=1
 
-async def get_gemini_response_with_audio(user_text: str):
+async def get_gemini_response_with_audio(user_text: str, chat_history: list = None):
     try:
         mandarin_response_text = ""
         english_translation = "Translation not available."
         audio_filename_to_return = None
 
         # First, generate text response using a separate stable approach
+        
+        history_prompt_segment = ""
+        if chat_history:
+            history_prompt_segment = "Here is the previous conversation history:\n"
+            for message in chat_history:
+                role = "User" if message.get("role") == "user" else "AI Tutor"
+                # Prefer Hanzi for context, fallback to English if Hanzi is not available or is placeholder
+                text_content = message.get("hanzi", "")
+                if not text_content or text_content == "...":
+                    text_content = message.get("english", "")
+
+                if text_content and text_content != "...": # Only add if there's meaningful content
+                    history_prompt_segment += f"{role}: {text_content}\n"
+            history_prompt_segment += "\nNow, considering the history above:\n"
+
         prompt_for_text_generation = f"""
         You are a friendly Mandarin Chinese tutor.
-        The user said in Mandarin: "{user_text}"
-        Respond to the user in simple Mandarin Chinese (1-2 short sentences).
+        {history_prompt_segment}
+        The user just said in Mandarin: "{user_text}"
+        Respond to the user in simple Mandarin Chinese (1-2 short sentences), keeping the conversation history in mind.
         After your Mandarin response, on a new line, provide the English translation of your Mandarin response, like this:
         English translation: [Your English translation here]
 
-        Example interaction if user says "你好吗？":
-        Mandarin response: 我很好，谢谢！你呢？ 
+        Example interaction if user says "你好吗？" (and there's no prior history):
+        Mandarin response: 我很好，谢谢！你呢？
         English translation: I'm fine, thank you! And you?
 
         Now, respond to the user's input: "{user_text}"
@@ -296,9 +313,20 @@ async def get_index(request: FastAPIRequest):
     return templates.TemplateResponse("index.html", {"request": request})
 
 @app.post("/interact")
-async def interact_with_ai(audio_file: UploadFile = File(...)):
+async def interact_with_ai(audio_file: UploadFile = File(...), chat_history_str: str = Form(None)):
     if not audio_file.content_type or not audio_file.content_type.startswith("audio/"):
         raise HTTPException(status_code=400, detail="Invalid audio file type or content type missing.")
+
+    parsed_chat_history = []
+    if chat_history_str:
+        try:
+            parsed_chat_history = json.loads(chat_history_str)
+            if not isinstance(parsed_chat_history, list):
+                print("Warning: chat_history_str was not a list, ignoring.")
+                parsed_chat_history = []
+        except json.JSONDecodeError:
+            print("Warning: Could not decode chat_history_str, ignoring.")
+            parsed_chat_history = []
 
     file_extension = ".webm" 
     if audio_file.filename:
@@ -354,7 +382,7 @@ async def interact_with_ai(audio_file: UploadFile = File(...)):
             "english": user_english_translation
         }
 
-        ai_response_data = await get_gemini_response_with_audio(user_transcribed_text)
+        ai_response_data = await get_gemini_response_with_audio(user_transcribed_text, parsed_chat_history)
         print(f"AI (Gemini response package): {ai_response_data}")
         
         # Ensure ai_response_data is not None and has expected keys

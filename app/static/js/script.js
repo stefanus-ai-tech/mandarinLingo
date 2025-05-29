@@ -1,17 +1,9 @@
 document.addEventListener("DOMContentLoaded", () => {
   const recordButton = document.getElementById("recordButton");
+  const clearChatButton = document.getElementById("clearChatButton");
   const statusMessage = document.getElementById("statusMessage");
-  const aiResponseDisplay = document.getElementById("aiResponseDisplay");
-  const aiPinyin = document.getElementById("aiPinyin");
-  const aiHanzi = document.getElementById("aiHanzi");
-  const aiEnglish = document.getElementById("aiEnglish");
+  const chatHistory = document.getElementById("chatHistory");
   const aiAudioPlayer = document.getElementById("aiAudioPlayer");
-
-  // Elements for user's transcribed input
-  const userTranscriptDisplay = document.getElementById("userTranscriptDisplay");
-  const userPinyin = document.getElementById("userPinyin");
-  const userHanzi = document.getElementById("userHanzi");
-  const userEnglish = document.getElementById("userEnglish");
 
   let mediaRecorder;
   let audioChunks = [];
@@ -38,8 +30,7 @@ document.addEventListener("DOMContentLoaded", () => {
       recordButton.textContent = "🛑 Stop Recording";
       recordButton.classList.add("recording");
       statusMessage.textContent = "Recording... Speak now.";
-      aiResponseDisplay.style.display = "none"; // Hide previous AI response
-      userTranscriptDisplay.style.display = "none"; // Hide previous user transcript
+      // Don't hide individual bubbles, new ones will be added
     } catch (err) {
       console.error("Error accessing microphone:", err);
       statusMessage.textContent =
@@ -65,10 +56,55 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  clearChatButton.addEventListener("click", () => {
+    chatHistory.innerHTML = ""; // Clear all messages
+    statusMessage.textContent = "Chat cleared. Ready for new input.";
+  });
+
+  function appendMessage(data, type) {
+    const messageBubble = document.createElement("div");
+    messageBubble.classList.add("response-bubble", `${type}-bubble`);
+
+    const mandarinBlock = document.createElement("div");
+    mandarinBlock.classList.add("mandarin-block");
+
+    const pinyinP = document.createElement("p");
+    pinyinP.classList.add("pinyin");
+    pinyinP.textContent = data.pinyin || "...";
+
+    const hanziP = document.createElement("p");
+    hanziP.classList.add("hanzi");
+    hanziP.textContent = data.hanzi || "...";
+
+    mandarinBlock.appendChild(pinyinP);
+    mandarinBlock.appendChild(hanziP);
+
+    const englishP = document.createElement("p");
+    englishP.classList.add("english");
+    englishP.textContent = data.english || "...";
+
+    messageBubble.appendChild(mandarinBlock);
+    messageBubble.appendChild(englishP);
+
+    chatHistory.appendChild(messageBubble);
+    chatHistory.scrollTop = chatHistory.scrollHeight; // Scroll to the bottom
+  }
+
   async function sendAudioToServer(audioBlob) {
     const formData = new FormData();
-    // It's important that the filename has an extension whisper recognizes, like .wav, .mp3, .webm, .m4a
     formData.append("audio_file", audioBlob, "user_audio.webm");
+
+    // Collect chat history
+    const messages = [];
+    chatHistory.querySelectorAll(".response-bubble").forEach(bubble => {
+      const type = bubble.classList.contains("user-bubble") ? "user" : "ai";
+      const hanzi = bubble.querySelector(".hanzi")?.textContent || "";
+      const pinyin = bubble.querySelector(".pinyin")?.textContent || "";
+      const english = bubble.querySelector(".english")?.textContent || "";
+      messages.push({ role: type, hanzi, pinyin, english });
+    });
+
+    formData.append("chat_history", JSON.stringify(messages));
 
     statusMessage.textContent = "Transcribing and getting AI response...";
 
@@ -89,26 +125,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const data = await response.json();
 
-      // Display user's transcribed input
       if (data.user_input) {
-        userHanzi.textContent = data.user_input.hanzi || "...";
-        userPinyin.textContent = data.user_input.pinyin || "...";
-        userEnglish.textContent = data.user_input.english || "...";
-        userTranscriptDisplay.style.display = "block";
-      } else {
-        userTranscriptDisplay.style.display = "none";
+        appendMessage(data.user_input, "user");
       }
 
-      // Display AI's response
       if (data.ai_response) {
-        aiHanzi.textContent = data.ai_response.hanzi || "...";
-        aiPinyin.textContent = data.ai_response.pinyin || "...";
-        aiEnglish.textContent = data.ai_response.english || "...";
-        aiResponseDisplay.style.display = "block";
-      } else {
-        aiResponseDisplay.style.display = "none";
+        appendMessage(data.ai_response, "ai");
       }
-
 
       if (data.audio_url) {
         aiAudioPlayer.src = data.audio_url + `?t=${new Date().getTime()}`; // Cache buster
@@ -126,8 +149,6 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (error) {
       console.error("Error sending audio or processing response:", error);
       statusMessage.textContent = `Error: ${error.message}. Please try again.`;
-      aiResponseDisplay.style.display = "none";
-      userTranscriptDisplay.style.display = "none";
     }
   }
 });

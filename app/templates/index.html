@@ -10,32 +10,14 @@
     <div class="container">
       <h1>Mandarin Learner AI</h1>
 
-      <div class="chat-area">
-        <div
-          id="userTranscriptDisplay"
-          class="response-bubble user-bubble"
-          style="display: none"
-        >
-          <div class="mandarin-block">
-            <p class="pinyin" id="userPinyin"></p>
-            <p class="hanzi" id="userHanzi"></p>
-          </div>
-          <p class="english" id="userEnglish"></p>
-        </div>
-        <div
-          id="aiResponseDisplay"
-          class="response-bubble ai-bubble"
-          style="display: none"
-        >
-          <div class="mandarin-block">
-            <p class="pinyin" id="aiPinyin"></p>
-            <p class="hanzi" id="aiHanzi"></p>
-          </div>
-          <p class="english" id="aiEnglish"></p>
-        </div>
+      <div id="chatHistory" class="chat-area">
+        <!-- Chat messages will be appended here by JavaScript -->
       </div>
 
-      <button id="recordButton">🎤 Start Recording</button>
+      <div class="controls-area">
+        <button id="recordButton">🎤 Start Recording</button>
+        <button id="clearChatButton">🗑️ Clear Chat</button>
+      </div>
       <p id="statusMessage"></p>
       <audio id="aiAudioPlayer" controls></audio>
     </div>
