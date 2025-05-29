@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mandarin Learner AI</title>
+    <link rel="stylesheet" href="/static/css/style.css" />
+  </head>
+  <body>
+    <div class="container">
+      <h1>Mandarin Learner AI</h1>
+
+      <div class="chat-area">
+        <div
+          id="aiResponseDisplay"
+          class="response-bubble ai-bubble"
+          style="display: none"
+        >
+          <div class="mandarin-block">
+            <p class="pinyin" id="aiPinyin"></p>
+            <p class="hanzi" id="aiHanzi"></p>
+          </div>
+          <p class="english" id="aiEnglish"></p>
+        </div>
+      </div>
+
+      <button id="recordButton">🎤 Start Recording</button>
+      <p id="statusMessage"></p>
+      <audio id="aiAudioPlayer" style="display: none"></audio>
+    </div>
+
+    <script src="/static/js/script.js"></script>
+  </body>
+</html>

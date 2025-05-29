@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+groq
+google-generativeai
+pypinyin
+aiofiles
+requests # For pypinyin, sometimes needed for resource files
+jinja2
+python-multipart

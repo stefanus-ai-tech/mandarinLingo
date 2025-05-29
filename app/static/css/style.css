@@ -1,0 +1,105 @@
+body {
+  font-family: sans-serif;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  margin: 0;
+  background-color: #f0f2f5;
+  color: #333;
+}
+
+.container {
+  background-color: #fff;
+  padding: 30px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  text-align: center;
+  width: 90%;
+  max-width: 600px;
+}
+
+h1 {
+  color: #1a73e8;
+  margin-bottom: 20px;
+}
+
+.chat-area {
+  margin-bottom: 20px;
+  min-height: 150px; /* Space for the AI response */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start; /* AI bubbles on the left */
+}
+
+.response-bubble {
+  padding: 10px 15px;
+  border-radius: 18px;
+  margin-bottom: 10px;
+  max-width: 80%;
+  text-align: left;
+}
+
+.ai-bubble {
+  background-color: #4a4a4a; /* Dark grey like the image */
+  color: white;
+  align-self: flex-start; /* Or center if you prefer */
+}
+
+.mandarin-block {
+  background-color: #333333; /* Slightly darker for pinyin/hanzi block */
+  padding: 8px 12px;
+  border-radius: 10px;
+  margin-bottom: 5px;
+}
+
+.pinyin {
+  font-size: 0.9em;
+  color: #ccc; /* Lighter grey for pinyin */
+  margin: 0 0 2px 0;
+  letter-spacing: 0.5px;
+}
+
+.hanzi {
+  font-size: 1.5em;
+  color: #ffffff;
+  margin: 0;
+  font-weight: bold;
+}
+
+.english {
+  font-size: 1em;
+  color: #dddddd; /* Lighter grey for English, ensure contrast */
+  margin-top: 8px;
+  padding: 5px 12px; /* Give it some padding if not in a block */
+}
+
+#recordButton {
+  background-color: #1a73e8;
+  color: white;
+  border: none;
+  padding: 12px 25px;
+  font-size: 1em;
+  border-radius: 25px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  margin-top: 20px;
+}
+
+#recordButton:hover {
+  background-color: #1558b3;
+}
+
+#recordButton.recording {
+  background-color: #d93025; /* Red when recording */
+}
+
+#recordButton.recording:hover {
+  background-color: #b0261c;
+}
+
+#statusMessage {
+  margin-top: 15px;
+  font-size: 0.9em;
+  color: #5f6368;
+}
