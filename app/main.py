@@ -25,6 +25,7 @@ import contextlib
 import traceback
 import pypinyin
 from pypinyin import Style
+from gtts import gTTS # Import gTTS
 
 load_dotenv()
 
@@ -371,9 +372,20 @@ async def get_gemini_response_with_audio(user_text: str, chat_history: list = No
                     print("No substantial audio data generated from stream.")
                         
             except Exception as audio_e:
-                print(f"Audio generation failed - using text-only response: {audio_e}")
+                print(f"Gemini audio generation failed: {audio_e}. Attempting gTTS fallback.")
                 traceback.print_exc()
-                audio_filename_to_return = None # Ensure no audio URL is returned on failure
+                try:
+                    tts = gTTS(text=mandarin_response_text, lang='zh-cn')
+                    unique_id = uuid.uuid4()
+                    gtts_audio_filename = f"response_{unique_id}.mp3"
+                    gtts_audio_filepath = os.path.join(audio_output_dir, gtts_audio_filename)
+                    tts.save(gtts_audio_filepath)
+                    audio_filename_to_return = gtts_audio_filename
+                    print(f"gTTS audio saved successfully: {gtts_audio_filepath}")
+                except Exception as gtts_e:
+                    print(f"gTTS fallback also failed: {gtts_e}")
+                    traceback.print_exc()
+                    audio_filename_to_return = None # Ensure no audio URL is returned on failure
 
         return {
             "hanzi": mandarin_response_text,
