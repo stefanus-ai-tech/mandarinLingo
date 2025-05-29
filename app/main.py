@@ -27,7 +27,7 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 # Changed to a model suitable for text generation
 GEMINI_TEXT_MODEL_NAME = "models/gemini-2.0-flash-live-001" 
 # This model is correct for the Live API audio synthesis
-GEMINI_LIVE_AUDIO_MODEL_NAME = "models/gemini-2.0-flash-live-001" 
+# GEMINI_LIVE_AUDIO_MODEL_NAME = "models/gemini-2.0-flash-live-001" 
 
 if not GOOGLE_API_KEY:
     raise ValueError("GOOGLE_API_KEY not found in .env file.")
@@ -78,6 +78,40 @@ async def transcribe_audio_groq(audio_path: str) -> str:
     except Exception as e:
         print(f"Groq transcription error: {e}")
         raise HTTPException(status_code=500, detail=f"Audio transcription failed: {e}")
+
+async def get_english_translation_for_user_text(text_to_translate: str) -> str:
+    if not text_to_translate:
+        return "No input to translate."
+    try:
+        prompt = f"Translate the following Mandarin Chinese text to English, providing only the English translation: \"{text_to_translate}\""
+        
+        text_model = GEMINI_TEXT_MODEL_NAME 
+        text_config = {"response_modalities": ["TEXT"]}
+            
+        print(f"Translating user text: '{text_to_translate}' with prompt: '{prompt}'")
+        async with live_api_google_client.aio.live.connect(model=text_model, config=text_config) as session:
+            await session.send_client_content(
+                turns={"role": "user", "parts": [{"text": prompt}]}, 
+                turn_complete=True
+            )
+            
+            text_parts = []
+            turn = session.receive()
+            async for chunk in turn:
+                if chunk.text is not None:
+                    text_parts.append(chunk.text)
+            
+            translation = "".join(text_parts).strip()
+            print(f"Raw translation from Gemini: '{translation}'")
+            # Clean up potential "English translation:" prefix if the model includes it
+            if translation.lower().startswith("english translation:"):
+                translation = translation.split(":", 1)[1].strip()
+            return translation if translation else "Could not translate."
+
+    except Exception as e:
+        print(f"Error translating user text: {e}")
+        traceback.print_exc()
+        return "Translation unavailable."
 
 @contextlib.contextmanager
 def wave_file_writer(filename, channels=1, rate=24000, sample_width=2):
@@ -287,21 +321,62 @@ async def interact_with_ai(audio_file: UploadFile = File(...)):
         print(f"User (transcribed by Groq): {user_transcribed_text}")
 
         if not user_transcribed_text:
-            fallback_hanzi = "抱歉，我没听清您说什么。"
-            fallback_pinyin = get_pinyin(fallback_hanzi)
-            fallback_english = "Sorry, I didn't understand what you said."
+            fallback_user_hanzi = "无法转录音频。"
+            fallback_user_pinyin = get_pinyin(fallback_user_hanzi)
+            fallback_user_english = "Could not transcribe audio."
+            
+            fallback_ai_hanzi = "抱歉，我没听清您说什么。"
+            fallback_ai_pinyin = get_pinyin(fallback_ai_hanzi)
+            fallback_ai_english = "Sorry, I didn't understand what you said."
+            
             print("Transcription failed or empty, returning fallback text-only response.")
             return JSONResponse(content={
-                "hanzi": fallback_hanzi,
-                "pinyin": fallback_pinyin,
-                "english": fallback_english,
+                "user_input": {
+                    "hanzi": fallback_user_hanzi,
+                    "pinyin": fallback_user_pinyin,
+                    "english": fallback_user_english
+                },
+                "ai_response": {
+                    "hanzi": fallback_ai_hanzi,
+                    "pinyin": fallback_ai_pinyin,
+                    "english": fallback_ai_english
+                },
                 "audio_url": None 
             })
 
-        ai_response = await get_gemini_response_with_audio(user_transcribed_text)
-        print(f"AI (Gemini response package): {ai_response}")
+        # Get Pinyin and English translation for user's transcribed text
+        user_pinyin = get_pinyin(user_transcribed_text)
+        user_english_translation = await get_english_translation_for_user_text(user_transcribed_text)
+
+        user_input_data = {
+            "hanzi": user_transcribed_text,
+            "pinyin": user_pinyin,
+            "english": user_english_translation
+        }
+
+        ai_response_data = await get_gemini_response_with_audio(user_transcribed_text)
+        print(f"AI (Gemini response package): {ai_response_data}")
         
-        return JSONResponse(content=ai_response)
+        # Ensure ai_response_data is not None and has expected keys
+        if not ai_response_data: # Should be handled by fallback in get_gemini_response_with_audio
+             ai_response_data = {
+                "hanzi": "抱歉，AI响应处理失败。",
+                "pinyin": get_pinyin("抱歉，AI响应处理失败。"),
+                "english": "Sorry, AI response processing failed.",
+                "audio_url": None
+            }
+
+        final_response = {
+            "user_input": user_input_data,
+            "ai_response": {
+                "hanzi": ai_response_data.get("hanzi"),
+                "pinyin": ai_response_data.get("pinyin"),
+                "english": ai_response_data.get("english")
+            },
+            "audio_url": ai_response_data.get("audio_url")
+        }
+        
+        return JSONResponse(content=final_response)
 
     except HTTPException as http_exc: # Re-raise HTTPExceptions directly
         raise http_exc

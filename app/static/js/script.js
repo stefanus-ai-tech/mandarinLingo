@@ -7,6 +7,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const aiEnglish = document.getElementById("aiEnglish");
   const aiAudioPlayer = document.getElementById("aiAudioPlayer");
 
+  // Elements for user's transcribed input
+  const userTranscriptDisplay = document.getElementById("userTranscriptDisplay");
+  const userPinyin = document.getElementById("userPinyin");
+  const userHanzi = document.getElementById("userHanzi");
+  const userEnglish = document.getElementById("userEnglish");
+
   let mediaRecorder;
   let audioChunks = [];
   let isRecording = false;
@@ -32,7 +38,8 @@ document.addEventListener("DOMContentLoaded", () => {
       recordButton.textContent = "🛑 Stop Recording";
       recordButton.classList.add("recording");
       statusMessage.textContent = "Recording... Speak now.";
-      aiResponseDisplay.style.display = "none"; // Hide previous response
+      aiResponseDisplay.style.display = "none"; // Hide previous AI response
+      userTranscriptDisplay.style.display = "none"; // Hide previous user transcript
     } catch (err) {
       console.error("Error accessing microphone:", err);
       statusMessage.textContent =
@@ -82,10 +89,26 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const data = await response.json();
 
-      aiHanzi.textContent = data.hanzi || "...";
-      aiPinyin.textContent = data.pinyin || "...";
-      aiEnglish.textContent = data.english || "...";
-      aiResponseDisplay.style.display = "block";
+      // Display user's transcribed input
+      if (data.user_input) {
+        userHanzi.textContent = data.user_input.hanzi || "...";
+        userPinyin.textContent = data.user_input.pinyin || "...";
+        userEnglish.textContent = data.user_input.english || "...";
+        userTranscriptDisplay.style.display = "block";
+      } else {
+        userTranscriptDisplay.style.display = "none";
+      }
+
+      // Display AI's response
+      if (data.ai_response) {
+        aiHanzi.textContent = data.ai_response.hanzi || "...";
+        aiPinyin.textContent = data.ai_response.pinyin || "...";
+        aiEnglish.textContent = data.ai_response.english || "...";
+        aiResponseDisplay.style.display = "block";
+      } else {
+        aiResponseDisplay.style.display = "none";
+      }
+
 
       if (data.audio_url) {
         aiAudioPlayer.src = data.audio_url + `?t=${new Date().getTime()}`; // Cache buster
@@ -104,6 +127,7 @@ document.addEventListener("DOMContentLoaded", () => {
       console.error("Error sending audio or processing response:", error);
       statusMessage.textContent = `Error: ${error.message}. Please try again.`;
       aiResponseDisplay.style.display = "none";
+      userTranscriptDisplay.style.display = "none";
     }
   }
 });

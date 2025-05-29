@@ -46,6 +46,28 @@ h1 {
   align-self: flex-start; /* Or center if you prefer */
 }
 
+.user-bubble {
+  background-color: #e1f5fe; /* Light blue background */
+  color: #333; /* Darker text for contrast */
+  align-self: flex-end;
+}
+
+.user-bubble .mandarin-block {
+  background-color: #b3e5fc; /* Slightly darker blue for pinyin/hanzi block */
+}
+
+.user-bubble .pinyin {
+  color: #0277bd; /* Darker blue for pinyin */
+}
+
+.user-bubble .hanzi {
+  color: #01579b; /* Even darker blue for hanzi */
+}
+
+.user-bubble .english {
+  color: #0288d1; /* Medium blue for English */
+}
+
 .mandarin-block {
   background-color: #333333; /* Slightly darker for pinyin/hanzi block */
   padding: 8px 12px;
