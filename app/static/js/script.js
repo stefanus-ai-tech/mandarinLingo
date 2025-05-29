@@ -94,17 +94,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const formData = new FormData();
     formData.append("audio_file", audioBlob, "user_audio.webm");
 
-    // Collect chat history
-    const messages = [];
-    chatHistory.querySelectorAll(".response-bubble").forEach(bubble => {
-      const type = bubble.classList.contains("user-bubble") ? "user" : "ai";
-      const hanzi = bubble.querySelector(".hanzi")?.textContent || "";
-      const pinyin = bubble.querySelector(".pinyin")?.textContent || "";
-      const english = bubble.querySelector(".english")?.textContent || "";
-      messages.push({ role: type, hanzi, pinyin, english });
-    });
-
-    formData.append("chat_history", JSON.stringify(messages));
 
     statusMessage.textContent = "Transcribing and getting AI response...";
 
