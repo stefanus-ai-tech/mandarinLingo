@@ -4,10 +4,13 @@ document.addEventListener("DOMContentLoaded", () => {
   const statusMessage = document.getElementById("statusMessage");
   const chatHistory = document.getElementById("chatHistory");
   const aiAudioPlayer = document.getElementById("aiAudioPlayer");
-
+  document
+    .getElementById("replayAllButton")
+    .addEventListener("click", replayAllAudio);
   let mediaRecorder;
   let audioChunks = [];
   let isRecording = false;
+  let allAiAudioUrls = [];
 
   // Initialize with welcome message
   initializeChat();
@@ -81,15 +84,63 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  async function replayAllAudio() {
+    if (allAiAudioUrls.length === 0) {
+      updateStatus("No AI audio to replay", true);
+      setTimeout(() => {
+        updateStatus("Ready to help you learn");
+      }, 2000);
+      return;
+    }
+
+    updateStatus(
+      `Playing all AI responses (${allAiAudioUrls.length} messages)...`
+    );
+
+    for (let i = 0; i < allAiAudioUrls.length; i++) {
+      try {
+        // Ensure the audio URL has the correct path
+        let audioUrl = allAiAudioUrls[i];
+        if (
+          !audioUrl.startsWith("/static/audio/") &&
+          !audioUrl.startsWith("http")
+        ) {
+          audioUrl = "/static/audio/" + audioUrl;
+        }
+
+        aiAudioPlayer.src = audioUrl + `?t=${new Date().getTime()}`;
+        await new Promise((resolve, reject) => {
+          aiAudioPlayer.onended = resolve;
+          aiAudioPlayer.onerror = reject;
+          aiAudioPlayer.play().catch(reject);
+        });
+
+        // Small pause between messages
+        if (i < allAiAudioUrls.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+      } catch (error) {
+        console.error("Error playing audio:", error);
+        break;
+      }
+    }
+
+    updateStatus("Ready to help you learn");
+  }
+
   clearChatButton.addEventListener("click", () => {
     // Clear all messages except welcome
     chatHistory.innerHTML = `
-      <div class="welcome-message">
-        <div class="welcome-icon">🇨🇳</div>
-        <h3>Welcome to Mandarin AI Tutor!</h3>
-        <p>Start speaking to practice your Mandarin. I'll help you with pronunciation, translation, and conversation.</p>
-      </div>
-    `;
+    <div class="welcome-message">
+      <div class="welcome-icon">🇨🇳</div>
+      <h3>Welcome to Mandarin AI Tutor!</h3>
+      <p>Start speaking to practice your Mandarin. I'll help you with pronunciation, translation, and conversation.</p>
+    </div>
+  `;
+
+    // Clear stored audio URLs
+    allAiAudioUrls = [];
+
     updateStatus("Chat cleared. Ready for new input");
 
     // Add a subtle animation
@@ -98,8 +149,10 @@ document.addEventListener("DOMContentLoaded", () => {
       chatHistory.style.opacity = "1";
     }, 200);
   });
-
   function appendMessage(data, type) {
+    // Add this debug line at the very beginning
+    console.log("appendMessage called with:", { data, type });
+
     // Remove welcome message if it's still there
     const welcomeMessage = document.querySelector(".welcome-message");
     if (welcomeMessage) {
@@ -108,7 +161,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const messageBubble = document.createElement("div");
     messageBubble.classList.add("response-bubble", `${type}-bubble`);
-
     // Create message content
     if (data.hanzi || data.pinyin) {
       // Mandarin content
@@ -137,6 +189,55 @@ document.addEventListener("DOMContentLoaded", () => {
       englishP.classList.add("english");
       englishP.textContent = data.english;
       messageBubble.appendChild(englishP);
+    }
+
+    // Add replay button for AI audio messages
+    if (type === "ai" && data.audio_url) {
+      // Add this debug line
+      console.log("Adding replay button for audio URL:", data.audio_url);
+
+      // Store the audio URL for replay all functionality
+      allAiAudioUrls.push(data.audio_url);
+      console.log("Current allAiAudioUrls:", allAiAudioUrls);
+      const replayButton = document.createElement("button");
+      replayButton.classList.add("replay-btn");
+      replayButton.innerHTML = `
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <polygon points="5 3 19 12 5 21 5 3"></polygon>
+    </svg>
+  `;
+      replayButton.title = "Replay this message";
+
+      replayButton.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        // Visual feedback
+        replayButton.style.transform = "scale(0.9)";
+        setTimeout(() => {
+          replayButton.style.transform = "scale(1)";
+        }, 150);
+
+        // Ensure the audio URL has the correct path
+        let audioUrl = data.audio_url;
+        if (
+          !audioUrl.startsWith("/static/audio/") &&
+          !audioUrl.startsWith("http")
+        ) {
+          audioUrl = "/static/audio/" + audioUrl;
+        }
+
+        aiAudioPlayer.src = audioUrl + `?t=${new Date().getTime()}`;
+        aiAudioPlayer
+          .play()
+          .catch((e) => console.error("Error playing audio:", e));
+        updateStatus("Playing this AI response...");
+
+        aiAudioPlayer.onended = () => {
+          updateStatus("Ready to help you learn");
+        };
+      });
+      messageBubble.appendChild(replayButton);
     }
 
     chatHistory.appendChild(messageBubble);
@@ -216,15 +317,35 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       // Add AI response
+      // Add AI response
       if (data.ai_response) {
         setTimeout(() => {
-          appendMessage(data.ai_response, "ai");
+          // Make sure to pass the audio_url to the AI response
+          const aiResponseData = {
+            ...data.ai_response,
+            audio_url: data.audio_url, // Ensure audio_url is included
+          };
+          console.log("Adding AI response with data:", aiResponseData);
+          appendMessage(aiResponseData, "ai");
         }, 300); // Small delay for better UX
       }
-
+      // Handle audio response
       // Handle audio response
       if (data.audio_url) {
-        aiAudioPlayer.src = data.audio_url + `?t=${new Date().getTime()}`;
+        // Store the audio URL immediately when we get it
+        allAiAudioUrls.push(data.audio_url);
+        console.log("Stored audio URL:", data.audio_url);
+        console.log("Total stored URLs:", allAiAudioUrls.length);
+
+        // Ensure the audio URL has the correct path
+        let audioUrl = data.audio_url;
+        if (
+          !audioUrl.startsWith("/static/audio/") &&
+          !audioUrl.startsWith("http")
+        ) {
+          audioUrl = "/static/audio/" + audioUrl;
+        }
+        aiAudioPlayer.src = audioUrl + `?t=${new Date().getTime()}`;
 
         updateStatus("Playing AI response...");
 

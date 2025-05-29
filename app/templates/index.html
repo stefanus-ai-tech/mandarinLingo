@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Mandarin Learner AI</title>
-    <link rel="stylesheet" href="/static/css/style.css" />
+    <link rel="stylesheet" href="static/css/style.css" />
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
       rel="stylesheet"
@@ -26,6 +26,23 @@
               Ready to help you learn
             </p>
           </div>
+          <button
+            id="replayAllButton"
+            class="clear-btn"
+            title="Replay All AI Audio"
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <polygon points="11 5 18 12 11 19 11 5"></polygon>
+              <circle cx="12" cy="12" r="10"></circle>
+            </svg>
+          </button>
           <button id="clearChatButton" class="clear-btn" title="Clear Chat">
             <svg
               width="20"
@@ -74,6 +91,6 @@
       <audio id="aiAudioPlayer" style="display: none"></audio>
     </div>
 
-    <script src="/static/js/script.js"></script>
+    <script src="static/js/script.js"></script>
   </body>
 </html>

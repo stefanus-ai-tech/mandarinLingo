@@ -173,6 +173,9 @@ body {
   align-self: flex-start;
   border-bottom-left-radius: 8px;
   box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3);
+  overflow: visible;
+  position: relative;
+  padding-bottom: 45px; /* Add extra space for the replay button */
 }
 
 .user-bubble {
@@ -213,6 +216,43 @@ body {
   opacity: 0.95;
   font-weight: 400;
   line-height: 1.4;
+}
+
+.replay-btn {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  background: rgba(255, 255, 255, 0.4);
+  border: none;
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: white;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(10px);
+  z-index: 100;
+  opacity: 1;
+}
+
+.replay-btn:hover {
+  background: rgba(255, 255, 255, 0.4);
+  transform: scale(1.1);
+  opacity: 1;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.replay-btn:active {
+  transform: scale(0.95);
+}
+
+.replay-btn svg {
+  width: 16px;
+  height: 16px;
 }
 
 /* Input area */
