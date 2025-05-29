@@ -5,21 +5,73 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Mandarin Learner AI</title>
     <link rel="stylesheet" href="/static/css/style.css" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
   </head>
   <body>
-    <div class="container">
-      <h1>Mandarin Learner AI</h1>
-
-      <div id="chatHistory" class="chat-area">
-        <!-- Chat messages will be appended here by JavaScript -->
+    <div class="chat-container">
+      <!-- Header -->
+      <div class="chat-header">
+        <div class="header-content">
+          <div class="ai-avatar">
+            <div class="avatar-circle">
+              <span class="avatar-icon">🤖</span>
+            </div>
+          </div>
+          <div class="header-info">
+            <h1 class="chat-title">Mandarin AI Tutor</h1>
+            <p class="chat-subtitle" id="statusMessage">
+              Ready to help you learn
+            </p>
+          </div>
+          <button id="clearChatButton" class="clear-btn" title="Clear Chat">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path
+                d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c0 1 1 2 2 2v2"
+              />
+              <line x1="10" y1="11" x2="10" y2="17" />
+              <line x1="14" y1="11" x2="14" y2="17" />
+            </svg>
+          </button>
+        </div>
       </div>
 
-      <div class="controls-area">
-        <button id="recordButton">🎤 Start Recording</button>
-        <button id="clearChatButton">🗑️ Clear Chat</button>
+      <!-- Chat Messages Area -->
+      <div class="chat-messages" id="chatHistory">
+        <div class="welcome-message">
+          <div class="welcome-icon">🎌</div>
+          <h3>Welcome to Mandarin AI Tutor!</h3>
+          <p>
+            Start speaking to practice your Mandarin. I'll help you with
+            pronunciation, translation, and conversation.
+          </p>
+        </div>
       </div>
-      <p id="statusMessage"></p>
-      <audio id="aiAudioPlayer" controls></audio>
+
+      <!-- Input Area -->
+      <div class="chat-input-area">
+        <div class="input-container">
+          <button id="recordButton" class="record-btn">
+            <div class="record-icon">
+              <div class="mic-icon">🎤</div>
+              <div class="pulse-ring"></div>
+            </div>
+            <span class="record-text">Tap to speak</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Hidden audio player -->
+      <audio id="aiAudioPlayer" style="display: none"></audio>
     </div>
 
     <script src="/static/js/script.js"></script>
