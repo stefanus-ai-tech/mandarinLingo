@@ -2,6 +2,10 @@ import os
 import uuid
 import asyncio
 import json # Added for parsing chat history
+import base64
+import mimetypes
+import re
+import struct
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form # Added Form
 from fastapi.staticfiles import StaticFiles
@@ -21,6 +25,86 @@ import pypinyin
 from pypinyin import Style
 
 load_dotenv()
+
+def save_binary_file(file_name, data):
+    f = open(file_name, "wb")
+    f.write(data)
+    f.close()
+    print(f"File saved to to: {file_name}")
+
+def convert_to_wav(audio_data: bytes, mime_type: str) -> bytes:
+    """Generates a WAV file header for the given audio data and parameters.
+
+    Args:
+        audio_data: The raw audio data as a bytes object.
+        mime_type: Mime type of the audio data.
+
+    Returns:
+        A bytes object representing the WAV file header.
+    """
+    parameters = parse_audio_mime_type(mime_type)
+    bits_per_sample = parameters["bits_per_sample"]
+    sample_rate = parameters["rate"]
+    num_channels = 1
+    data_size = len(audio_data)
+    bytes_per_sample = bits_per_sample // 8
+    block_align = num_channels * bytes_per_sample
+    byte_rate = sample_rate * block_align
+    chunk_size = 36 + data_size  # 36 bytes for header fields before data chunk size
+
+    # http://soundfile.sapp.org/doc/WaveFormat/
+
+    header = struct.pack(
+        "<4sI4s4sIHHIIHH4sI",
+        b"RIFF",          # ChunkID
+        chunk_size,       # ChunkSize (total file size - 8 bytes)
+        b"WAVE",          # Format
+        b"fmt ",          # Subchunk1ID
+        16,               # Subchunk1Size (16 for PCM)
+        1,                # AudioFormat (1 for PCM)
+        num_channels,     # NumChannels
+        sample_rate,      # SampleRate
+        byte_rate,        # ByteRate
+        block_align,      # BlockAlign
+        bits_per_sample,  # BitsPerSample
+        b"data",          # Subchunk2ID
+        data_size         # Subchunk2Size (size of audio data)
+    )
+    return header + audio_data
+
+def parse_audio_mime_type(mime_type: str) -> dict[str, int | None]:
+    """Parses bits per sample and rate from an audio MIME type string.
+
+    Assumes bits per sample is encoded like "L16" and rate as "rate=xxxxx".
+
+    Args:
+        mime_type: The audio MIME type string (e.g., "audio/L16;rate=24000").
+
+    Returns:
+        A dictionary with "bits_per_sample" and "rate" keys. Values will be
+        integers if found, otherwise None.
+    """
+    bits_per_sample = 16
+    rate = 24000
+
+    # Extract rate from parameters
+    parts = mime_type.split(";")
+    for param in parts: # Skip the main type part
+        param = param.strip()
+        if param.lower().startswith("rate="):
+            try:
+                rate_str = param.split("=", 1)[1]
+                rate = int(rate_str)
+            except (ValueError, IndexError):
+                # Handle cases like "rate=" with no value or non-integer value
+                pass # Keep rate as default
+        elif param.startswith("audio/L"):
+            try:
+                bits_per_sample = int(param.split("L", 1)[1])
+            except (ValueError, IndexError):
+                pass # Keep bits_per_sample as default if conversion fails
+
+    return {"bits_per_sample": bits_per_sample, "rate": rate}
 
 # --- Configuration ---
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
@@ -135,18 +219,16 @@ async def get_gemini_response_with_audio(user_text: str, chat_history: list = No
         audio_filename_to_return = None
 
         # First, generate text response using a separate stable approach
-        
         history_prompt_segment = ""
         if chat_history:
             history_prompt_segment = "Here is the previous conversation history:\n"
             for message in chat_history:
                 role = "User" if message.get("role") == "user" else "AI Tutor"
-                # Prefer Hanzi for context, fallback to English if Hanzi is not available or is placeholder
                 text_content = message.get("hanzi", "")
                 if not text_content or text_content == "...":
                     text_content = message.get("english", "")
 
-                if text_content and text_content != "...": # Only add if there's meaningful content
+                if text_content and text_content != "...":
                     history_prompt_segment += f"{role}: {text_content}\n"
             history_prompt_segment += "\nNow, considering the history above:\n"
 
@@ -171,7 +253,6 @@ async def get_gemini_response_with_audio(user_text: str, chat_history: list = No
         text_model = "gemini-2.0-flash-live-001"  # More stable for text
         
         try:
-            # Use simple TEXT-only config for text generation
             text_config = {"response_modalities": ["TEXT"]}
             
             async with live_api_google_client.aio.live.connect(model=text_model, config=text_config) as session:
@@ -217,13 +298,11 @@ async def get_gemini_response_with_audio(user_text: str, chat_history: list = No
             if mandarin_parts:
                 mandarin_response_text = " ".join(mandarin_parts)
             
-            # Fallback parsing if structured format not found
             if not mandarin_response_text and lines:
                 mandarin_response_text = lines[0].strip()
                 if len(lines) > 1:
                     english_translation = lines[1].strip()
 
-        # Use fallback if no text was generated
         if not mandarin_response_text:
             mandarin_response_text = "你好！" 
             english_translation = "Hello!"
@@ -232,61 +311,67 @@ async def get_gemini_response_with_audio(user_text: str, chat_history: list = No
         print(f"Final Mandarin text: '{mandarin_response_text}'")
         print(f"Final English translation: '{english_translation}'")
 
-        # Step 2: Generate audio using the audio-capable model
-        if mandarin_response_text and mandarin_response_text != "你好！":
+        # Step 2: Generate audio using the new streaming approach
+        if mandarin_response_text: # Generate audio even for fallback text
             try:
                 print("Generating audio...")
-                audio_model = "gemini-2.5-flash-preview-native-audio-dialog"
-                
-                # Create audio file
-                unique_id = uuid.uuid4()
-                audio_file_name_temp = f"response_{unique_id}.wav"
-                audio_filepath_temp = os.path.join(audio_output_dir, audio_file_name_temp)
-                
-                # Use AUDIO-only config for audio generation
-                audio_config = {"response_modalities": ["AUDIO"]}
-                
-                # Create a more explicit audio synthesis prompt
-                audio_prompt = f"Please read this Mandarin Chinese text aloud clearly and naturally WITHOUT ANY EXPLANATION: {mandarin_response_text}"
-                
-                async with live_api_google_client.aio.live.connect(model=audio_model, config=audio_config) as session:
-                    print(f"Sending audio synthesis request for: '{mandarin_response_text}'")
-                    
-                    with wave_file_writer(audio_filepath_temp) as wav:
-                        await session.send_client_content(
-                            turns={"role": "user", "parts": [{"text": audio_prompt}]}, 
-                            turn_complete=True
+                model = "gemini-2.5-flash-preview-tts"
+                contents = mandarin_response_text
+                generate_content_config = google_genai.types.GenerateContentConfig(
+                    temperature=1,
+                    response_modalities=[
+                        "audio",
+                    ],
+                    speech_config=google_genai.types.SpeechConfig(
+                        voice_config=google_genai.types.VoiceConfig(
+                            prebuilt_voice_config=google_genai.types.PrebuiltVoiceConfig(
+                                voice_name="Zephyr"
+                            )
                         )
-                        
-                        turn = session.receive()
-                        audio_chunks_received = 0
-                        
-                        async for chunk in turn:
-                            if chunk.data is not None:
-                                wav.writeframes(chunk.data)
-                                audio_chunks_received += 1
-                                if audio_chunks_received % 10 == 0:  # Print progress every 10 chunks
-                                    print('.', end='', flush=True)
-                        
-                        print(f"\nReceived {audio_chunks_received} audio chunks")
+                    ),
+                )
+
+                unique_id = uuid.uuid4()
+                audio_file_name_temp = f"response_{unique_id}"
+                audio_filepath_temp_base = os.path.join(audio_output_dir, audio_file_name_temp)
                 
-                # Check if audio was generated successfully
-                if os.path.exists(audio_filepath_temp) and os.path.getsize(audio_filepath_temp) > 44:
-                    audio_filename_to_return = audio_file_name_temp
-                    print(f"Audio saved successfully: {audio_filepath_temp}")
+                file_index = 0
+                for chunk in google_model_client.models.generate_content_stream(
+                    model=model,
+                    contents=contents,
+                    config=generate_content_config,
+                ):
+                    if (
+                        chunk.candidates is None
+                        or chunk.candidates[0].content is None
+                        or chunk.candidates[0].content.parts is None
+                    ):
+                        continue
+                    if chunk.candidates[0].content.parts[0].inline_data and chunk.candidates[0].content.parts[0].inline_data.data:
+                        current_file_name = f"{audio_filepath_temp_base}_{file_index}"
+                        file_index += 1
+                        inline_data = chunk.candidates[0].content.parts[0].inline_data
+                        data_buffer = inline_data.data
+                        file_extension = mimetypes.guess_extension(inline_data.mime_type)
+                        if file_extension is None:
+                            file_extension = ".wav"
+                            data_buffer = convert_to_wav(inline_data.data, inline_data.mime_type)
+                        
+                        final_audio_path = f"{current_file_name}{file_extension}"
+                        save_binary_file(final_audio_path, data_buffer)
+                        audio_filename_to_return = os.path.basename(final_audio_path) # Only return the last one for now
+                    else:
+                        print(chunk.text) # This might print non-audio chunks if any
+
+                if audio_filename_to_return:
+                    print(f"Audio saved successfully: {os.path.join(audio_output_dir, audio_filename_to_return)}")
                 else:
-                    print("No substantial audio data generated")
-                    if os.path.exists(audio_filepath_temp):
-                        os.remove(audio_filepath_temp)
+                    print("No substantial audio data generated from stream.")
                         
             except Exception as audio_e:
                 print(f"Audio generation failed - using text-only response: {audio_e}")
-                # Don't re-raise the exception, just continue without audio
-                if 'audio_filepath_temp' in locals() and os.path.exists(audio_filepath_temp):
-                    try:
-                        os.remove(audio_filepath_temp)
-                    except:
-                        pass
+                traceback.print_exc()
+                audio_filename_to_return = None # Ensure no audio URL is returned on failure
 
         return {
             "hanzi": mandarin_response_text,
@@ -299,7 +384,6 @@ async def get_gemini_response_with_audio(user_text: str, chat_history: list = No
         print(f"Overall error in get_gemini_response_with_audio: {e}")
         traceback.print_exc()
         
-        # Return fallback response instead of raising exception
         return {
             "hanzi": "抱歉，出现了技术问题。",
             "pinyin": get_pinyin("抱歉，出现了技术问题。"),
