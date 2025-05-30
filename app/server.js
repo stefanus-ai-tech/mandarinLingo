@@ -71,13 +71,47 @@ function saveBinaryFile(fileName, data) {
 function getPinyin(textToConvert) {
     if (!textToConvert) return "";
     try {
-        // Fixed: pinyin is an object, not a function
-        return pinyin(textToConvert, {
-            style: pinyin.STYLE_TONE,
-            heteronym: false
-        }).map(item => item[0]).join(' ');
+        // Debug: Check what pinyin actually is
+        console.log('Pinyin module type:', typeof pinyin);
+        console.log('Pinyin module keys:', Object.keys(pinyin));
+
+        // Try different approaches based on the pinyin package version
+        let result;
+
+        if (typeof pinyin === 'function') {
+            // If pinyin is a function (older versions)
+            result = pinyin(textToConvert, {
+                style: pinyin.STYLE_TONE || 'tone',
+                heteronym: false
+            });
+        } else if (pinyin.default && typeof pinyin.default === 'function') {
+            // If it's an ES6 module with default export
+            result = pinyin.default(textToConvert, {
+                style: pinyin.default.STYLE_TONE || 'tone',
+                heteronym: false
+            });
+        } else if (pinyin.pinyin && typeof pinyin.pinyin === 'function') {
+            // If it has a pinyin method
+            result = pinyin.pinyin(textToConvert, {
+                style: pinyin.STYLE_TONE || 'tone',
+                heteronym: false
+            });
+        } else {
+            // Fallback: return empty string and log the issue
+            console.error('Cannot determine how to use pinyin module');
+            return "";
+        }
+
+        // Convert result to string
+        if (Array.isArray(result)) {
+            return result.map(item => Array.isArray(item) ? item[0] : item).join(' ');
+        } else {
+            return String(result || "");
+        }
+
     } catch (error) {
         console.error('Error generating pinyin:', error);
+        console.error('Stack trace:', error.stack);
         return "";
     }
 }
@@ -180,7 +214,7 @@ async function getEnglishTranslationForUserText(textToTranslate) {
         console.log(`Translating user text: '${textToTranslate}'`);
 
         const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
-            model: "meta-llama/llama-4-scout-17b-16e-instruct", // More stable model
+            model:"meta-llama/llama-4-scout-17b-16e-instruct",
             messages: messages,
             temperature: 0.3,
             max_tokens: 1024,
@@ -255,7 +289,7 @@ async function getAIResponseWithAudio(userText, chatHistory = null) {
         console.log("Generating text response with Groq...");
 
         const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
-            model: "meta-llama/llama-4-scout-17b-16e-instruct", // More stable model
+            model:"meta-llama/llama-4-scout-17b-16e-instruct",
             messages: messages,
             temperature: 0.7,
             max_tokens: 1024,
