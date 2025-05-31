@@ -143,7 +143,7 @@ async function transcribeAudioGroq(audioPath) {
             contentType: 'audio/webm' // Groq accepts webm format
         });
 
-        formData.append('model', 'whisper-large-v3-turbo'); // Use turbo version
+        formData.append('model', 'whisper-large-v3'); // Use turbo version
         formData.append('response_format', 'text');
         formData.append('language', 'zh'); // Chinese language code
         formData.append('temperature', '0'); // More deterministic results
@@ -241,11 +241,22 @@ async function getEnglishTranslationForUserText(textToTranslate) {
     }
 }
 
+// Enhanced chat history management
 function loadChatHistory() {
     try {
         if (fsSync.existsSync(CHAT_HISTORY_FILE)) {
             const data = fsSync.readFileSync(CHAT_HISTORY_FILE, 'utf8');
-            return JSON.parse(data);
+            const history = JSON.parse(data);
+
+            // Ensure each entry has proper structure
+            return history.map(entry => ({
+                role: entry.role || 'user',
+                hanzi: entry.hanzi || '',
+                english: entry.english || '',
+                pinyin: entry.pinyin || '',
+                timestamp: entry.timestamp || new Date().toISOString(),
+                topics: entry.topics || []
+            }));
         }
     } catch (error) {
         console.error('Error loading chat history:', error);
@@ -255,10 +266,107 @@ function loadChatHistory() {
 
 function saveChatHistory(history) {
     try {
-        fsSync.writeFileSync(CHAT_HISTORY_FILE, JSON.stringify(history, null, 4), 'utf8');
+        // Keep only the last 50 messages to prevent file from growing too large
+        const trimmedHistory = history.slice(-50);
+        fsSync.writeFileSync(CHAT_HISTORY_FILE, JSON.stringify(trimmedHistory, null, 4), 'utf8');
     } catch (error) {
         console.error('Error saving chat history:', error);
     }
+}
+
+// Enhanced context analysis
+function analyzeConversationContext(chatHistory) {
+    if (!chatHistory || chatHistory.length === 0) {
+        return {
+            recentTopics: [],
+            conversationStyle: 'greeting',
+            learningLevel: 'beginner',
+            lastUserMessage: null,
+            contextSummary: ''
+        };
+    }
+
+    // Get recent messages (last 10)
+    const recentMessages = chatHistory.slice(-10);
+
+    // Extract topics and patterns
+    const topics = [];
+    const userMessages = recentMessages.filter(msg => msg.role === 'user');
+    const lastUserMessage = userMessages[userMessages.length - 1];
+
+    // Simple topic extraction based on common Chinese topics
+    const topicKeywords = {
+        greeting: ['你好', '再见', '谢谢', '不客气'],
+        family: ['爸爸', '妈妈', '家人', '儿子', '女儿'],
+        food: ['吃', '饭', '菜', '水果', '喝'],
+        weather: ['天气', '雨', '晴天', '冷', '热'],
+        work: ['工作', '公司', '老板', '同事'],
+        time: ['时间', '今天', '昨天', '明天', '现在'],
+        location: ['在哪里', '去', '来', '这里', '那里']
+    };
+
+    for (const [topic, keywords] of Object.entries(topicKeywords)) {
+        for (const message of recentMessages) {
+            if (keywords.some(keyword => message.hanzi.includes(keyword))) {
+                if (!topics.includes(topic)) {
+                    topics.push(topic);
+                }
+            }
+        }
+    }
+
+    // Determine conversation style
+    let conversationStyle = 'casual';
+    if (recentMessages.length <= 2) {
+        conversationStyle = 'greeting';
+    } else if (topics.includes('greeting')) {
+        conversationStyle = 'polite';
+    }
+
+    // Generate context summary
+    let contextSummary = '';
+    if (recentMessages.length > 0) {
+        const recentUserMessages = recentMessages.filter(msg => msg.role === 'user').slice(-3);
+        const recentAIMessages = recentMessages.filter(msg => msg.role === 'assistant').slice(-3);
+
+        if (recentUserMessages.length > 0) {
+            contextSummary = `Recent conversation topics: ${topics.join(', ') || 'general conversation'}. `;
+            contextSummary += `User has been discussing: ${recentUserMessages.map(msg => msg.english).join(', ')}.`;
+        }
+    }
+
+    return {
+        recentTopics: topics,
+        conversationStyle: conversationStyle,
+        learningLevel: 'beginner', // Could be enhanced with analysis
+        lastUserMessage: lastUserMessage,
+        contextSummary: contextSummary,
+        messageCount: chatHistory.length
+    };
+}
+
+// Enhanced system prompt generation
+function generateContextualSystemPrompt(context) {
+    let basePrompt = "You are a friendly Mandarin Chinese tutor. ";
+
+    // Adjust based on conversation context
+    if (context.messageCount === 0) {
+        basePrompt += "This is the start of a new conversation. Greet the user warmly in Chinese. ";
+    } else if (context.conversationStyle === 'greeting') {
+        basePrompt += "Continue the greeting conversation naturally. ";
+    } else {
+        basePrompt += `Continue the conversation naturally. Recent topics have included: ${context.recentTopics.join(', ') || 'general conversation'}. `;
+    }
+
+    if (context.lastUserMessage) {
+        basePrompt += `The user just said: "${context.lastUserMessage.english}". Respond appropriately to continue the conversation flow. `;
+    }
+
+    basePrompt += "Respond in simple Mandarin Chinese (1-2 short sentences). ";
+    basePrompt += "Make your response relevant to what the user said and the conversation context. ";
+    basePrompt += "After your Mandarin response, on a new line, provide the English translation of your Mandarin response, like this: English translation: [Your English translation here]";
+
+    return basePrompt;
 }
 
 async function getAIResponseWithAudio(userText, chatHistory = null) {
@@ -267,26 +375,46 @@ async function getAIResponseWithAudio(userText, chatHistory = null) {
         let englishTranslation = "Translation not available.";
         let audioFilenameToReturn = null;
 
+        // Analyze conversation context
+        const context = analyzeConversationContext(chatHistory);
+        console.log('Conversation context:', context);
+
+        // Generate contextual system prompt
+        const systemPrompt = generateContextualSystemPrompt(context);
+        console.log('System prompt:', systemPrompt);
+
         const messages = [
             {
                 role: "system",
-                content: "You are a friendly Mandarin Chinese tutor. Respond in simple Mandarin Chinese (1-2 short sentences). After your Mandarin response, on a new line, provide the English translation of your Mandarin response, like this: English translation: [Your English translation here]"
+                content: systemPrompt
             }
         ];
 
-        if (chatHistory) {
-            for (const message of chatHistory.slice(-10)) { // Keep last 10 messages for context
+        // Add relevant conversation history with better context preservation
+        if (chatHistory && chatHistory.length > 0) {
+            // Include more context for better flow, but limit to prevent token overflow
+            const contextMessages = chatHistory.slice(-8); // Last 8 messages for better context
+
+            for (const message of contextMessages) {
                 if (message.role === "user") {
-                    messages.push({ role: "user", content: message.hanzi || "" });
+                    messages.push({
+                        role: "user",
+                        content: `${message.hanzi}${message.english ? ` (English: ${message.english})` : ''}`
+                    });
                 } else if (message.role === "assistant") {
-                    messages.push({ role: "assistant", content: message.hanzi || "" });
+                    messages.push({
+                        role: "assistant",
+                        content: message.hanzi || ""
+                    });
                 }
             }
         }
 
+        // Add current user message
         messages.push({ role: "user", content: userText });
 
-        console.log("Generating text response with Groq...");
+        console.log("Generating contextual response with Groq...");
+        console.log("Message history length:", messages.length);
 
         const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
             model:"meta-llama/llama-4-scout-17b-16e-instruct",
@@ -303,7 +431,7 @@ async function getAIResponseWithAudio(userText, chatHistory = null) {
         });
 
         const fullGroqTextOutput = response.data.choices[0].message.content;
-        console.log(`Generated text: ${fullGroqTextOutput}`);
+        console.log(`Generated contextual text: ${fullGroqTextOutput}`);
 
         if (fullGroqTextOutput) {
             const lines = fullGroqTextOutput.split('\n');
@@ -335,10 +463,16 @@ async function getAIResponseWithAudio(userText, chatHistory = null) {
             }
         }
 
+        // Contextual fallback responses
         if (!mandarinResponseText) {
-            mandarinResponseText = "你好！";
-            englishTranslation = "Hello!";
-            console.log("Warning: Using fallback text response");
+            if (context.messageCount === 0) {
+                mandarinResponseText = "你好！很高兴见到你！";
+                englishTranslation = "Hello! Nice to meet you!";
+            } else {
+                mandarinResponseText = "我明白了。";
+                englishTranslation = "I understand.";
+            }
+            console.log("Warning: Using contextual fallback text response");
         }
 
         console.log(`Final Mandarin text: '${mandarinResponseText}'`);
@@ -376,16 +510,27 @@ async function getAIResponseWithAudio(userText, chatHistory = null) {
             hanzi: mandarinResponseText,
             pinyin: getPinyin(mandarinResponseText),
             english: englishTranslation,
-            audio_url: audioFilenameToReturn ? `/static/audio/${audioFilenameToReturn}` : null
+            audio_url: audioFilenameToReturn ? `/static/audio/${audioFilenameToReturn}` : null,
+            context: context // Include context in response for debugging
         };
 
     } catch (error) {
         console.error(`Overall error in getAIResponseWithAudio:`, error.response?.data || error.message);
 
+        // Contextual error responses
+        const context = analyzeConversationContext(chatHistory);
+        let errorResponse = "抱歉，出现了技术问题。";
+        let errorEnglish = "Sorry, there was a technical issue.";
+
+        if (context.messageCount === 0) {
+            errorResponse = "抱歉，我现在有点问题。你好 ！";
+            errorEnglish = "Sorry, I'm having some issues right now. Hello!";
+        }
+
         return {
-            hanzi: "抱歉，出现了技术问题。",
-            pinyin: getPinyin("抱歉，出现了技术问题。"),
-            english: "Sorry, there was a technical issue.",
+            hanzi: errorResponse,
+            pinyin: getPinyin(errorResponse),
+            english: errorEnglish,
             audio_url: null
         };
     }
@@ -424,6 +569,28 @@ your-project/
     }
 });
 
+// New endpoint to get conversation context
+app.get('/context', (req, res) => {
+    const chatHistory = loadChatHistory();
+    const context = analyzeConversationContext(chatHistory);
+    res.json({
+        messageCount: chatHistory.length,
+        context: context,
+        recentMessages: chatHistory.slice(-5) // Last 5 messages
+    });
+});
+
+// New endpoint to clear conversation history
+app.post('/clear-history', (req, res) => {
+    try {
+        fsSync.writeFileSync(CHAT_HISTORY_FILE, JSON.stringify([], null, 4), 'utf8');
+        res.json({ message: "Chat history cleared successfully" });
+    } catch (error) {
+        console.error('Error clearing chat history:', error);
+        res.status(500).json({ error: "Failed to clear chat history" });
+    }
+});
+
 app.post('/interact', upload.single('audio_file'), async (req, res) => {
     try {
         if (!req.file) {
@@ -454,11 +621,20 @@ app.post('/interact', upload.single('audio_file'), async (req, res) => {
             const fallbackUserPinyin = getPinyin(fallbackUserHanzi);
             const fallbackUserEnglish = "Could not transcribe audio.";
 
-            const fallbackAiHanzi = "抱歉，我没听清您说 什么。";
-            const fallbackAiPinyin = getPinyin(fallbackAiHanzi);
-            const fallbackAiEnglish = "Sorry, I didn't understand what you said.";
+            const context = analyzeConversationContext(chatHistory);
+            let fallbackAiHanzi, fallbackAiEnglish;
 
-            console.log("Transcription failed or empty, returning fallback text-only response.");
+            if (context.messageCount === 0) {
+                fallbackAiHanzi = "你好！请再试一次。";
+                fallbackAiEnglish = "Hello! Please try again.";
+            } else {
+                fallbackAiHanzi = "抱歉，我没听清您说什 么。";
+                fallbackAiEnglish = "Sorry, I didn't understand what you said.";
+            }
+
+            const fallbackAiPinyin = getPinyin(fallbackAiHanzi);
+
+            console.log("Transcription failed or empty, returning contextual fallback response.");
 
             // Clean up temp file
             try {
@@ -488,35 +664,41 @@ app.post('/interact', upload.single('audio_file'), async (req, res) => {
         const userInputData = {
             hanzi: userTranscribedText,
             pinyin: userPinyin,
-            english: userEnglishTranslation
+            english: userEnglishTranslation,
+            timestamp: new Date().toISOString()
         };
 
-        // Update chat history
+        // Update chat history with enhanced user data
         chatHistory.push({
             role: "user",
             hanzi: userTranscribedText,
-            english: userEnglishTranslation
+            english: userEnglishTranslation,
+            pinyin: userPinyin,
+            timestamp: new Date().toISOString()
         });
-        saveChatHistory(chatHistory);
 
         let aiResponseData = await getAIResponseWithAudio(userTranscribedText, chatHistory);
         console.log(`AI (Groq response package): ${JSON.stringify(aiResponseData)}`);
 
         if (!aiResponseData) {
+            const context = analyzeConversationContext(chatHistory);
             aiResponseData = {
-                hanzi: "抱歉，AI响应处理失败。",
-                pinyin: getPinyin("抱歉，AI响应处理失败 。"),
-                english: "Sorry, AI response processing failed.",
+                hanzi: context.messageCount === 0 ? "你 好！有什么问题吗？" : "抱歉，AI响应处理失败。",
+                pinyin: getPinyin(context.messageCount === 0 ? "你好！有什么问题吗？" : "抱歉，AI响应处理失败。"),
+                english: context.messageCount === 0 ? "Hello! Any questions?" : "Sorry, AI response processing failed.",
                 audio_url: null
             };
         }
 
-        // Update chat history with AI response
+        // Update chat history with AI response and enhanced data
         chatHistory.push({
             role: "assistant",
             hanzi: aiResponseData.hanzi,
-            english: aiResponseData.english
+            english: aiResponseData.english,
+            pinyin: aiResponseData.pinyin,
+            timestamp: new Date().toISOString()
         });
+
         saveChatHistory(chatHistory);
 
         const finalResponse = {
@@ -526,7 +708,8 @@ app.post('/interact', upload.single('audio_file'), async (req, res) => {
                 pinyin: aiResponseData.pinyin,
                 english: aiResponseData.english
             },
-            audio_url: aiResponseData.audio_url
+            audio_url: aiResponseData.audio_url,
+            conversation_context: aiResponseData.context // Include context info
         };
 
         // Clean up temp file
@@ -580,6 +763,9 @@ if (!fsSync.existsSync(tempUploadDir)) {
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`Visit http://localhost:${PORT} to see the server`);
+    console.log(`New endpoints available:`);
+    console.log(`  GET /context - View conversation context`);
+    console.log(`  POST /clear-history - Clear chat history`);
 });
 
 module.exports = app;
