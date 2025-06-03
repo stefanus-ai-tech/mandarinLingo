@@ -9,6 +9,7 @@ const fsPromises = require("fs").promises; // For other async fs operations
 const os = require("os");
 const path = require("path");
 const { v4: uuidv4 } = require("uuid");
+const ffmpeg = require("fluent-ffmpeg"); // npm install fluent-ffmpeg
 
 dotenv.config();
 
@@ -67,6 +68,92 @@ const getPinyinString = (textToConvert) => {
     heteronym: false,
   }).join(" ");
 };
+
+/**
+ * Maximizes the loudness of an audio file using FFmpeg
+ * @param {string} inputPath - Path to the input audio file
+ * @param {string} outputPath - Path for the processed output file
+ * @returns {Promise<void>}
+ */
+async function maximizeAudioLoudness(inputPath, outputPath) {
+  return new Promise((resolve, reject) => {
+    console.log(`[AUDIO_PROCESSING] Starting loudness maximization...`);
+    console.log(`[AUDIO_PROCESSING] Input: ${inputPath}`);
+    console.log(`[AUDIO_PROCESSING] Output: ${outputPath}`);
+
+    ffmpeg(inputPath)
+      // First pass: Analyze audio levels
+      .audioFilters([
+        // Normalize audio to -1dB peak (maximizes volume without clipping)
+        "loudnorm=I=-16:TP=-1.5:LRA=11:measured_I=-16:measured_LRA=11:measured_TP=-1.5:measured_thresh=-26.0:offset=0.0",
+        // Additional dynamic range compression for maximum loudness
+        "acompressor=threshold=0.089:ratio=9:attack=200:release=1000:makeup=2",
+        // Final limiter to prevent any clipping
+        "alimiter=level_in=1:level_out=0.95:limit=0.95:attack=7:release=50:asc=1",
+      ])
+      .audioCodec("libmp3lame")
+      .audioBitrate("128k")
+      .audioFrequency(44100)
+      .on("start", (commandLine) => {
+        console.log(`[AUDIO_PROCESSING] FFmpeg command: ${commandLine}`);
+      })
+      .on("progress", (progress) => {
+        if (progress.percent) {
+          console.log(
+            `[AUDIO_PROCESSING] Processing: ${Math.round(
+              progress.percent
+            )}% done`
+          );
+        }
+      })
+      .on("end", () => {
+        console.log(
+          "[AUDIO_PROCESSING] Loudness maximization completed successfully"
+        );
+        resolve();
+      })
+      .on("error", (err) => {
+        console.error("[AUDIO_PROCESSING] FFmpeg error:", err);
+        reject(new Error(`Audio processing failed: ${err.message}`));
+      })
+      .save(outputPath);
+  });
+}
+
+/**
+ * Alternative loudness maximization with simpler approach
+ * @param {string} inputPath - Path to the input audio file
+ * @param {string} outputPath - Path for the processed output file
+ * @returns {Promise<void>}
+ */
+async function maximizeAudioLoudnessSimple(inputPath, outputPath) {
+  return new Promise((resolve, reject) => {
+    console.log(
+      `[AUDIO_PROCESSING_SIMPLE] Starting simple loudness maximization...`
+    );
+
+    ffmpeg(inputPath)
+      .audioFilters([
+        // Simple volume normalization - increases volume to maximum without clipping
+        "volume=enable='between(t,0,600)':volume=3.0",
+        // Hard limiter to prevent distortion
+        "alimiter=level_in=1:level_out=0.98:limit=0.98",
+      ])
+      .audioCodec("libmp3lame")
+      .audioBitrate("128k")
+      .on("end", () => {
+        console.log(
+          "[AUDIO_PROCESSING_SIMPLE] Simple loudness maximization completed"
+        );
+        resolve();
+      })
+      .on("error", (err) => {
+        console.error("[AUDIO_PROCESSING_SIMPLE] FFmpeg error:", err);
+        reject(new Error(`Simple audio processing failed: ${err.message}`));
+      })
+      .save(outputPath);
+  });
+}
 
 async function transcribeAudioGroq(audioPath) {
   console.log(`[TRANSCRIBE_AUDIO_GROQ] Called with audioPath: ${audioPath}`);
@@ -242,12 +329,19 @@ async function getAiResponseWithAudioSupabase(userText, chatContext = []) {
       englishTranslation = "Hello!";
     }
 
-    // Generate audio using ElevenLabs
+    // Generate audio using ElevenLabs with loudness maximization
     if (mandarinResponseText && elevenlabs) {
       const tempAudioDir = path.join(os.tmpdir(), "audio_output_js");
       await fsPromises.mkdir(tempAudioDir, { recursive: true });
       const audioFilenameTemp = `response_${uuidv4()}.mp3`;
       const audioFilepathTemp = path.join(tempAudioDir, audioFilenameTemp);
+
+      // Create separate filename for processed audio
+      const processedAudioFilename = `processed_${audioFilenameTemp}`;
+      const processedAudioPath = path.join(
+        tempAudioDir,
+        processedAudioFilename
+      );
 
       try {
         console.log("[ELEVENLABS] Starting audio generation...");
@@ -264,30 +358,71 @@ async function getAiResponseWithAudioSupabase(userText, chatContext = []) {
 
         console.log("[ELEVENLABS] Audio generated successfully");
 
-        // Save the audio buffer to a temporary file
+        // Save the original audio buffer to a temporary file
         await fsPromises.writeFile(audioFilepathTemp, audioBuffer);
 
-        // Verify the file was created and has content
+        // Verify the original file was created and has content
         const fileStats = await fsPromises.stat(audioFilepathTemp);
-        console.log(`[ELEVENLABS] File size: ${fileStats.size} bytes`);
+        console.log(`[ELEVENLABS] Original file size: ${fileStats.size} bytes`);
 
         if (fileStats.size === 0) {
           throw new Error("Generated audio file is empty");
         }
 
-        // Upload to Supabase if available
+        // Apply loudness maximization
+        console.log("[AUDIO_PROCESSING] Starting loudness maximization...");
+        try {
+          await maximizeAudioLoudness(audioFilepathTemp, processedAudioPath);
+          console.log(
+            "[AUDIO_PROCESSING] Loudness maximization completed successfully"
+          );
+
+          // Verify processed file
+          const processedFileStats = await fsPromises.stat(processedAudioPath);
+          console.log(
+            `[AUDIO_PROCESSING] Processed file size: ${processedFileStats.size} bytes`
+          );
+        } catch (audioProcessingError) {
+          console.warn(
+            "[AUDIO_PROCESSING] Advanced processing failed, trying simple approach:",
+            audioProcessingError.message
+          );
+          try {
+            await maximizeAudioLoudnessSimple(
+              audioFilepathTemp,
+              processedAudioPath
+            );
+            console.log(
+              "[AUDIO_PROCESSING] Simple loudness maximization completed"
+            );
+          } catch (simpleProcessingError) {
+            console.error(
+              "[AUDIO_PROCESSING] All audio processing attempts failed:",
+              simpleProcessingError.message
+            );
+            // Use original file if processing fails
+            await fsPromises.copyFile(audioFilepathTemp, processedAudioPath);
+            console.log(
+              "[AUDIO_PROCESSING] Using original audio file without processing"
+            );
+          }
+        }
+
+        // Upload processed audio to Supabase if available
         if (supabase) {
           try {
-            console.log("[ELEVENLABS] Uploading to Supabase...");
-            const audioFileBuffer = await fsPromises.readFile(
-              audioFilepathTemp
+            console.log(
+              "[ELEVENLABS] Uploading processed audio to Supabase..."
             );
-            const supabasePath = `${audioFilenameTemp}`;
+            const processedAudioBuffer = await fsPromises.readFile(
+              processedAudioPath
+            );
+            const supabasePath = `${processedAudioFilename}`;
 
             const { data: uploadData, error: uploadError } =
               await supabase.storage
                 .from(AUDIO_BUCKET_NAME)
-                .upload(supabasePath, audioFileBuffer, {
+                .upload(supabasePath, processedAudioBuffer, {
                   contentType: "audio/mpeg",
                   upsert: false,
                 });
@@ -299,7 +434,7 @@ async function getAiResponseWithAudioSupabase(userText, chatContext = []) {
               .getPublicUrl(supabasePath);
             audioSupabaseUrl = publicUrlData?.publicUrl;
             console.log(
-              `[ELEVENLABS] Audio uploaded to Supabase: ${audioSupabaseUrl}`
+              `[ELEVENLABS] Processed audio uploaded to Supabase: ${audioSupabaseUrl}`
             );
           } catch (supabaseError) {
             console.error(
@@ -329,16 +464,23 @@ async function getAiResponseWithAudioSupabase(userText, chatContext = []) {
           );
         }
       } finally {
-        // Clean up temp file - only if it exists
-        try {
-          await fsPromises.access(audioFilepathTemp);
-          await fsPromises.unlink(audioFilepathTemp);
-          console.log("[ELEVENLABS] Temp file cleaned up");
-        } catch (cleanupError) {
-          // File doesn't exist or couldn't be deleted - that's okay
-          console.log(
-            "[ELEVENLABS] Temp audio file cleanup: file may not exist or already deleted"
-          );
+        // Clean up temp files - both original and processed
+        const filesToCleanup = [audioFilepathTemp, processedAudioPath];
+        for (const filePath of filesToCleanup) {
+          try {
+            await fsPromises.access(filePath);
+            await fsPromises.unlink(filePath);
+            console.log(
+              `[ELEVENLABS] Temp file cleaned up: ${path.basename(filePath)}`
+            );
+          } catch (cleanupError) {
+            // File doesn't exist or couldn't be deleted - that's okay
+            console.log(
+              `[ELEVENLABS] Temp file cleanup: ${path.basename(
+                filePath
+              )} may not exist or already deleted`
+            );
+          }
         }
       }
     } else if (!elevenlabs) {
