@@ -1,12 +1,21 @@
 [build]
+  publish = "app/static"
   functions = "netlify/functions"
-  publish = "app" # Assuming your static assets (HTML, CSS, JS) are in 'app'
 
 [dev]
-  command = "echo 'Starting Netlify Dev Server...'" # Placeholder, can be improved
-  port = 8888
-  publish = "app"
+  command = ""
+  port = 8889
+  publish = "app/static"
   functions = "netlify/functions"
+
+[functions]
+  directory = "netlify/functions"
+
+[functions."interact"]
+  timeout = 90
+
+[functions."*"]
+  runtime = "node" # Switched from Python to Node.js
 
 [[redirects]]
   from = "/api/*"

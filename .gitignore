@@ -7,3 +7,4 @@
 **chat_history.json**
 # Local Netlify folder
 .netlify
+**node_modules**

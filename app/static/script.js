@@ -10,7 +10,8 @@ document.addEventListener("DOMContentLoaded", () => {
   let mediaRecorder;
   let audioChunks = [];
   let isRecording = false;
-  let allAiAudioUrls = []; // This might be less relevant if history is always fetched
+  let allAiAudioUrls = [];
+  let currentChatMessages = []; // To store chat history for context
 
   // API endpoints
   const API_BASE_URL = "/.netlify/functions"; // Using Netlify's default path
@@ -26,19 +27,21 @@ document.addEventListener("DOMContentLoaded", () => {
         throw new Error(errorData.detail || "Unknown error loading history");
       }
       const history = await response.json();
+      
+      allAiAudioUrls = []; // Clear before populating from history
+      currentChatMessages = history; // Store fetched history
+
       chatHistory.innerHTML = ''; // Clear any existing welcome message
       if (history.length === 0) {
         appendWelcomeMessage(); // Add welcome if history is empty
       } else {
         history.forEach(item => {
-          // Adapt 'item' to the structure expected by appendMessage
-          // The 'type' will be item.role. 'audio_url' is directly item.audio_url
           appendMessage({ 
             hanzi: item.hanzi, 
             pinyin: item.pinyin, 
             english: item.english, 
             audio_url: item.audio_url 
-          }, item.role);
+          }, item.role, true); // Pass true for isFromHistory
         });
       }
       updateStatus("Ready to help you learn");
@@ -209,6 +212,7 @@ document.addEventListener("DOMContentLoaded", () => {
       chatHistory.innerHTML = '';
       appendWelcomeMessage(); // Add back the welcome message
       allAiAudioUrls = []; // Clear local cache of audio URLs
+      currentChatMessages = []; // Clear current chat messages
       updateStatus("Chat cleared. Ready for new input.");
     } catch (error) {
       console.error("Error clearing chat:", error);
@@ -216,8 +220,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  function appendMessage(data, type) {
-    console.log("appendMessage called with:", { data, type });
+  function appendMessage(data, type, isFromHistory = false) {
+    console.log("appendMessage called with:", { data, type, isFromHistory });
 
     const welcomeMessage = document.querySelector(".welcome-message");
     if (welcomeMessage && chatHistory.children.length > 1) { // Remove if not the only child
@@ -265,7 +269,9 @@ document.addEventListener("DOMContentLoaded", () => {
       console.log("Adding replay button for audio URL:", data.audio_url);
 
       // Store the audio URL for replay all functionality
-      allAiAudioUrls.push(data.audio_url);
+      if (!allAiAudioUrls.includes(data.audio_url)) {
+        allAiAudioUrls.push(data.audio_url);
+      }
       console.log("Current allAiAudioUrls:", allAiAudioUrls);
       const replayButton = document.createElement("button");
       replayButton.classList.add("replay-btn");
@@ -311,6 +317,16 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     chatHistory.appendChild(messageBubble);
+
+    if (!isFromHistory) {
+      const messageObject = { role: type };
+      if (data.hanzi) messageObject.hanzi = data.hanzi;
+      if (data.pinyin) messageObject.pinyin = data.pinyin;
+      if (data.english) messageObject.english = data.english;
+      if (type === "ai" && data.audio_url) messageObject.audio_url = data.audio_url;
+      currentChatMessages.push(messageObject);
+      console.log("Updated currentChatMessages:", currentChatMessages);
+    }
 
     // Smooth scroll to bottom
     setTimeout(() => {
@@ -367,7 +383,8 @@ document.addEventListener("DOMContentLoaded", () => {
         },
         body: JSON.stringify({ 
           audio_base64: audioBase64,
-          filename: audioFilename 
+          filename: audioFilename,
+          chat_context: currentChatMessages // Send chat history for context
         }),
       });
 
@@ -385,17 +402,17 @@ document.addEventListener("DOMContentLoaded", () => {
       const data = await response.json();
 
       if (data.user_input) {
-        appendMessage(data.user_input, "user");
+        appendMessage(data.user_input, "user"); // isFromHistory defaults to false
       }
 
       if (data.ai_response) {
          setTimeout(() => { // Keep small delay for UX
             const aiResponseData = {
                 ...data.ai_response,
-                audio_url: data.audio_url, 
+                audio_url: data.audio_url,
             };
             console.log("Adding AI response with data:", aiResponseData);
-            appendMessage(aiResponseData, "ai");
+            appendMessage(aiResponseData, "ai"); // isFromHistory defaults to false
 
             // Play audio if URL exists
             if (data.audio_url) {

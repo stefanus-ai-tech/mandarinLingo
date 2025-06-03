@@ -1,0 +1,23 @@
+{
+  "name": "mandarinlingo-functions",
+  "version": "1.0.0",
+  "description": "Netlify functions for MandarinLingo",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "netlify",
+    "functions"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.9",
+    "dotenv": "^16.5.0",
+    "groq-sdk": "^0.23.0",
+    "gtts": "^0.2.1",
+    "pinyin": "^4.0.0",
+    "uuid": "^11.1.0"
+  }
+}
