@@ -175,7 +175,7 @@ body {
   box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3);
   overflow: visible;
   position: relative;
-  padding-bottom: 45px; /* Add extra space for the replay button */
+  padding-bottom: 10px; /* Add extra space for the replay button */
 }
 
 .user-bubble {
@@ -219,9 +219,6 @@ body {
 }
 
 .replay-btn {
-  position: absolute;
-  bottom: 12px;
-  right: 12px;
   background: rgba(255, 255, 255, 0.4);
   border: none;
   border-radius: 50%;

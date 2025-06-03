@@ -10,6 +10,8 @@
 
 [functions]
   directory = "netlify/functions"
+  external_node_modules = ["elevenlabs"]
+  node_bundler          = "esbuild"
 
 [functions."interact"]
   timeout = 90

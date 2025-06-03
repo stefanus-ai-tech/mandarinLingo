@@ -1,8 +1,9 @@
+const https = require("https");
 const Groq = require("groq-sdk");
 const { SupabaseClient, createClient } = require("@supabase/supabase-js");
 const dotenv = require("dotenv");
 const { pinyin } = require("pinyin"); // npm install pinyin
-const gTTS = require("gtts"); // npm install gtts - or a node equivalent
+const { ElevenLabsClient } = require("elevenlabs"); // npm install elevenlabs
 const fs = require("fs"); // For createReadStream
 const fsPromises = require("fs").promises; // For other async fs operations
 const os = require("os");
@@ -14,9 +15,25 @@ dotenv.config();
 const GROQ_API_KEY = process.env.GROQZ_API_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY; // This should be the anon key for client-side accessible functions, or service_role for admin tasks on server
+const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
 
 const AUDIO_BUCKET_NAME = "audioresponses"; // Ensure this matches your Supabase bucket
 const CHAT_TABLE_NAME = "chat_messages"; // Ensure this matches your Supabase table
+
+// ElevenLabs Voice ID for Coco Li (you may need to verify this ID in your ElevenLabs dashboard)
+const ELEVENLABS_VOICE_ID = "Ca5bKgudqKJzq8YRFoAz"; // This is a placeholder - replace with actual Coco Li voice ID
+
+function withTimeout(promise, timeoutMs) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`Operation timed out after ${timeoutMs}ms`)),
+        timeoutMs
+      )
+    ),
+  ]);
+}
 
 let supabase;
 if (SUPABASE_URL && SUPABASE_KEY) {
@@ -32,6 +49,15 @@ if (GROQ_API_KEY) {
   groq = new Groq({ apiKey: GROQ_API_KEY });
 } else {
   console.error("ERROR: GROQ_API_KEY not found.");
+}
+
+let elevenlabs;
+if (ELEVENLABS_API_KEY) {
+  elevenlabs = new ElevenLabsClient({ apiKey: ELEVENLABS_API_KEY });
+} else {
+  console.error(
+    "ERROR: ELEVENLABS_API_KEY not found. Audio generation will be disabled."
+  );
 }
 
 const getPinyinString = (textToConvert) => {
@@ -216,62 +242,109 @@ async function getAiResponseWithAudioSupabase(userText, chatContext = []) {
       englishTranslation = "Hello!";
     }
 
-    // Re-enabling gTTS audio generation and Supabase upload.
-    // console.log("[DEBUG] Skipping gTTS audio generation and Supabase upload."); // Keep this commented
-    // audioSupabaseUrl = null; // Keep this commented
-
-    if (mandarinResponseText) {
+    // Generate audio using ElevenLabs
+    if (mandarinResponseText && elevenlabs) {
       const tempAudioDir = path.join(os.tmpdir(), "audio_output_js");
-      await fsPromises.mkdir(tempAudioDir, { recursive: true }); // Use fsPromises
-      const gttsAudioFilenameTemp = `response_${uuidv4()}.mp3`;
-      const gttsAudioFilepathTemp = path.join(
-        tempAudioDir,
-        gttsAudioFilenameTemp
-      );
+      await fsPromises.mkdir(tempAudioDir, { recursive: true });
+      const audioFilenameTemp = `response_${uuidv4()}.mp3`;
+      const audioFilepathTemp = path.join(tempAudioDir, audioFilenameTemp);
 
-      // Using gtts library
-      const tts = new gTTS(mandarinResponseText, "zh-cn");
-      await new Promise((resolve, reject) => {
-        tts.save(gttsAudioFilepathTemp, (err) => {
-          if (err) return reject(err);
-          resolve();
-        });
-      });
-      console.log(`gTTS audio generated: ${gttsAudioFilepathTemp}`);
+      try {
+        console.log("[ELEVENLABS] Starting audio generation...");
 
-      if (supabase) {
-        try {
-          const audioFileBuffer = await fsPromises.readFile(
-            gttsAudioFilepathTemp
-          ); // Use fsPromises
-          const supabasePath = `${gttsAudioFilenameTemp}`; // File name as path in bucket
+        // Generate audio using ElevenLabs
+        const audioBuffer = await withTimeout(
+          elevenlabs.textToSpeech.convert(ELEVENLABS_VOICE_ID, {
+            output_format: "mp3_44100_128",
+            text: mandarinResponseText,
+            model_id: "eleven_turbo_v2_5",
+          }),
+          30000 // 30 second timeout
+        );
 
-          const { data: uploadData, error: uploadError } =
-            await supabase.storage
-              .from(AUDIO_BUCKET_NAME)
-              .upload(supabasePath, audioFileBuffer, {
-                contentType: "audio/mpeg",
-                upsert: false, // true to overwrite if exists, false to error
-              });
+        console.log("[ELEVENLABS] Audio generated successfully");
 
-          if (uploadError) throw uploadError;
+        // Save the audio buffer to a temporary file
+        await fsPromises.writeFile(audioFilepathTemp, audioBuffer);
 
-          const { data: publicUrlData } = supabase.storage
-            .from(AUDIO_BUCKET_NAME)
-            .getPublicUrl(supabasePath);
-          audioSupabaseUrl = publicUrlData?.publicUrl;
-          console.log(`Audio uploaded to Supabase: ${audioSupabaseUrl}`);
-        } catch (supabaseError) {
-          console.error("Supabase audio upload failed:", supabaseError);
-          audioSupabaseUrl = null;
-        } finally {
-          await fsPromises // Use fsPromises
-            .unlink(gttsAudioFilepathTemp)
-            .catch((e) => console.error("Failed to delete temp audio file", e));
+        // Verify the file was created and has content
+        const fileStats = await fsPromises.stat(audioFilepathTemp);
+        console.log(`[ELEVENLABS] File size: ${fileStats.size} bytes`);
+
+        if (fileStats.size === 0) {
+          throw new Error("Generated audio file is empty");
         }
-      } else {
-        console.warn("Supabase client not initialized. Skipping audio upload.");
+
+        // Upload to Supabase if available
+        if (supabase) {
+          try {
+            console.log("[ELEVENLABS] Uploading to Supabase...");
+            const audioFileBuffer = await fsPromises.readFile(
+              audioFilepathTemp
+            );
+            const supabasePath = `${audioFilenameTemp}`;
+
+            const { data: uploadData, error: uploadError } =
+              await supabase.storage
+                .from(AUDIO_BUCKET_NAME)
+                .upload(supabasePath, audioFileBuffer, {
+                  contentType: "audio/mpeg",
+                  upsert: false,
+                });
+
+            if (uploadError) throw uploadError;
+
+            const { data: publicUrlData } = supabase.storage
+              .from(AUDIO_BUCKET_NAME)
+              .getPublicUrl(supabasePath);
+            audioSupabaseUrl = publicUrlData?.publicUrl;
+            console.log(
+              `[ELEVENLABS] Audio uploaded to Supabase: ${audioSupabaseUrl}`
+            );
+          } catch (supabaseError) {
+            console.error(
+              "[ELEVENLABS] Supabase audio upload failed:",
+              supabaseError
+            );
+            audioSupabaseUrl = null;
+          }
+        } else {
+          console.warn(
+            "[ELEVENLABS] Supabase client not initialized. Skipping audio upload."
+          );
+        }
+      } catch (elevenLabsError) {
+        console.error("[ELEVENLABS] Audio generation failed:", elevenLabsError);
+        audioSupabaseUrl = null;
+
+        // If ElevenLabs fails, continue without audio but log the specific error
+        if (elevenLabsError.message.includes("timed out")) {
+          console.error(
+            "[ELEVENLABS] ElevenLabs service timed out - continuing without audio"
+          );
+        } else {
+          console.error(
+            "[ELEVENLABS] ElevenLabs service error:",
+            elevenLabsError.message
+          );
+        }
+      } finally {
+        // Clean up temp file - only if it exists
+        try {
+          await fsPromises.access(audioFilepathTemp);
+          await fsPromises.unlink(audioFilepathTemp);
+          console.log("[ELEVENLABS] Temp file cleaned up");
+        } catch (cleanupError) {
+          // File doesn't exist or couldn't be deleted - that's okay
+          console.log(
+            "[ELEVENLABS] Temp audio file cleanup: file may not exist or already deleted"
+          );
+        }
       }
+    } else if (!elevenlabs) {
+      console.warn(
+        "[ELEVENLABS] ElevenLabs client not initialized. Skipping audio generation."
+      );
     }
   } catch (error) {
     console.error("Overall error in getAiResponseWithAudioSupabase:", error);
