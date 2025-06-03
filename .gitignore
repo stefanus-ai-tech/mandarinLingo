@@ -5,3 +5,5 @@
 **__pycache__**
 **audio**
 **chat_history.json**
+# Local Netlify folder
+.netlify

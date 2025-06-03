@@ -8,3 +8,4 @@ requests # For pypinyin, sometimes needed for resource files
 jinja2
 python-multipart
 gTTS
+supabase-py

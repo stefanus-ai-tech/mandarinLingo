@@ -1,0 +1,14 @@
+[build]
+  functions = "netlify/functions"
+  publish = "app" # Assuming your static assets (HTML, CSS, JS) are in 'app'
+
+[dev]
+  command = "echo 'Starting Netlify Dev Server...'" # Placeholder, can be improved
+  port = 8888
+  publish = "app"
+  functions = "netlify/functions"
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200

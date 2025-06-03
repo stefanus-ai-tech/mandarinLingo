@@ -10,13 +10,61 @@ document.addEventListener("DOMContentLoaded", () => {
   let mediaRecorder;
   let audioChunks = [];
   let isRecording = false;
-  let allAiAudioUrls = [];
+  let allAiAudioUrls = []; // This might be less relevant if history is always fetched
 
-  // Initialize with welcome message
+  // API endpoints
+  const API_BASE_URL = "/.netlify/functions"; // Using Netlify's default path
+
   initializeChat();
 
-  function initializeChat() {
-    updateStatus("Ready to help you learn");
+  async function initializeChat() {
+    updateStatus("Loading chat history...");
+    try {
+      const response = await fetch(`${API_BASE_URL}/get_chat_history`);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: "Failed to load chat history" }));
+        throw new Error(errorData.detail || "Unknown error loading history");
+      }
+      const history = await response.json();
+      chatHistory.innerHTML = ''; // Clear any existing welcome message
+      if (history.length === 0) {
+        appendWelcomeMessage(); // Add welcome if history is empty
+      } else {
+        history.forEach(item => {
+          // Adapt 'item' to the structure expected by appendMessage
+          // The 'type' will be item.role. 'audio_url' is directly item.audio_url
+          appendMessage({ 
+            hanzi: item.hanzi, 
+            pinyin: item.pinyin, 
+            english: item.english, 
+            audio_url: item.audio_url 
+          }, item.role);
+        });
+      }
+      updateStatus("Ready to help you learn");
+    } catch (error) {
+      console.error("Error initializing chat:", error);
+      updateStatus(`Error loading history: ${error.message}`, true);
+      appendWelcomeMessage(); // Show welcome message on error
+    }
+    // Scroll to bottom after loading history
+    setTimeout(() => {
+      chatHistory.scrollTo({ top: chatHistory.scrollHeight, behavior: "auto" });
+    }, 100);
+  }
+  
+  function appendWelcomeMessage() {
+    // Only append if it doesn't exist
+    if (!document.querySelector(".welcome-message")) {
+      const welcomeDiv = document.createElement('div');
+      welcomeDiv.classList.add("welcome-message");
+      welcomeDiv.innerHTML = `
+        <div class="welcome-icon">🇨🇳</div>
+        <h3>Welcome to Mandarin AI Tutor!</h3>
+        <p>Start speaking to practice your Mandarin. I'll help you with pronunciation, translation, and conversation.</p>
+      `;
+      chatHistory.appendChild(welcomeDiv);
+    }
   }
 
   function updateStatus(message, isError = false) {
@@ -37,8 +85,24 @@ document.addEventListener("DOMContentLoaded", () => {
 
       mediaRecorder.onstop = async () => {
         const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+        const filename = `user_audio_${new Date().toISOString()}.webm`;
         audioChunks = [];
-        await sendAudioToServer(audioBlob);
+        
+        // Convert Blob to base64
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = async () => {
+          const base64Audio = reader.result.split(',')[1]; // Get base64 part
+          await sendAudioToServer(base64Audio, filename);
+        };
+        reader.onerror = (error) => {
+            console.error("Error converting audio blob to base64:", error);
+            updateStatus("Error processing audio. Please try again.", true);
+            // Reset UI
+            recordButton.classList.remove("recording");
+            recordButton.querySelector(".record-text").textContent = "Tap to speak";
+        }
+        
         stream.getTracks().forEach((track) => track.stop());
       };
 
@@ -101,14 +165,17 @@ document.addEventListener("DOMContentLoaded", () => {
       try {
         // Ensure the audio URL has the correct path
         let audioUrl = allAiAudioUrls[i];
-        if (
-          !audioUrl.startsWith("/static/audio/") &&
-          !audioUrl.startsWith("http")
-        ) {
-          audioUrl = "/static/audio/" + audioUrl;
-        }
-
-        aiAudioPlayer.src = audioUrl + `?t=${new Date().getTime()}`;
+        // Audio URLs from Supabase will be absolute, so no prefixing needed
+        // let audioUrl = allAiAudioUrls[i];
+        // if (
+        //   !audioUrl.startsWith("/static/audio/") &&
+        //   !audioUrl.startsWith("http")
+        // ) {
+        //   audioUrl = "/static/audio/" + audioUrl;
+        // }
+        // aiAudioPlayer.src = audioUrl + `?t=${new Date().getTime()}`;
+        
+        aiAudioPlayer.src = allAiAudioUrls[i] + `?t=${new Date().getTime()}`; // Assuming Supabase URLs are absolute
         await new Promise((resolve, reject) => {
           aiAudioPlayer.onended = resolve;
           aiAudioPlayer.onerror = reject;
@@ -128,36 +195,37 @@ document.addEventListener("DOMContentLoaded", () => {
     updateStatus("Ready to help you learn");
   }
 
-  clearChatButton.addEventListener("click", () => {
-    // Clear all messages except welcome
-    chatHistory.innerHTML = `
-    <div class="welcome-message">
-      <div class="welcome-icon">🇨🇳</div>
-      <h3>Welcome to Mandarin AI Tutor!</h3>
-      <p>Start speaking to practice your Mandarin. I'll help you with pronunciation, translation, and conversation.</p>
-    </div>
-  `;
-
-    // Clear stored audio URLs
-    allAiAudioUrls = [];
-
-    updateStatus("Chat cleared. Ready for new input");
-
-    // Add a subtle animation
-    chatHistory.style.opacity = "0.5";
-    setTimeout(() => {
-      chatHistory.style.opacity = "1";
-    }, 200);
+  clearChatButton.addEventListener("click", async () => {
+    updateStatus("Clearing chat...");
+    try {
+      const response = await fetch(`${API_BASE_URL}/delete_chat_history`, {
+        method: "POST",
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: "Failed to clear chat on server" }));
+        throw new Error(errorData.detail || "Unknown server error during clear");
+      }
+      // Clear UI
+      chatHistory.innerHTML = '';
+      appendWelcomeMessage(); // Add back the welcome message
+      allAiAudioUrls = []; // Clear local cache of audio URLs
+      updateStatus("Chat cleared. Ready for new input.");
+    } catch (error) {
+      console.error("Error clearing chat:", error);
+      updateStatus(`Error clearing chat: ${error.message}`, true);
+    }
   });
+
   function appendMessage(data, type) {
-    // Add this debug line at the very beginning
     console.log("appendMessage called with:", { data, type });
 
-    // Remove welcome message if it's still there
     const welcomeMessage = document.querySelector(".welcome-message");
-    if (welcomeMessage) {
-      welcomeMessage.remove();
+    if (welcomeMessage && chatHistory.children.length > 1) { // Remove if not the only child
+        welcomeMessage.remove();
+    } else if (welcomeMessage && type) { // Remove if adding any message
+        welcomeMessage.remove();
     }
+
 
     const messageBubble = document.createElement("div");
     messageBubble.classList.add("response-bubble", `${type}-bubble`);
@@ -220,14 +288,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // Ensure the audio URL has the correct path
         let audioUrl = data.audio_url;
-        if (
-          !audioUrl.startsWith("/static/audio/") &&
-          !audioUrl.startsWith("http")
-        ) {
-          audioUrl = "/static/audio/" + audioUrl;
-        }
-
-        aiAudioPlayer.src = audioUrl + `?t=${new Date().getTime()}`;
+        // Audio URLs from Supabase will be absolute
+        // let audioUrl = data.audio_url;
+        // if (
+        //   !audioUrl.startsWith("/static/audio/") &&
+        //   !audioUrl.startsWith("http")
+        // ) {
+        //   audioUrl = "/static/audio/" + audioUrl;
+        // }
+        // aiAudioPlayer.src = audioUrl + `?t=${new Date().getTime()}`;
+        aiAudioPlayer.src = data.audio_url + `?t=${new Date().getTime()}`; // Assuming Supabase URLs are absolute
         aiAudioPlayer
           .play()
           .catch((e) => console.error("Error playing audio:", e));
@@ -285,17 +355,20 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  async function sendAudioToServer(audioBlob) {
-    const formData = new FormData();
-    formData.append("audio_file", audioBlob, "user_audio.webm");
-
+  async function sendAudioToServer(audioBase64, audioFilename) {
     updateStatus("Transcribing and getting AI response...");
     showLoadingMessage();
 
     try {
-      const response = await fetch("/interact", {
+      const response = await fetch(`${API_BASE_URL}/interact`, {
         method: "POST",
-        body: formData,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ 
+          audio_base64: audioBase64,
+          filename: audioFilename 
+        }),
       });
 
       removeLoadingMessage();
@@ -311,63 +384,42 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const data = await response.json();
 
-      // Add user message
       if (data.user_input) {
         appendMessage(data.user_input, "user");
       }
 
-      // Add AI response
-      // Add AI response
       if (data.ai_response) {
-        setTimeout(() => {
-          // Make sure to pass the audio_url to the AI response
-          const aiResponseData = {
-            ...data.ai_response,
-            audio_url: data.audio_url, // Ensure audio_url is included
-          };
-          console.log("Adding AI response with data:", aiResponseData);
-          appendMessage(aiResponseData, "ai");
-        }, 300); // Small delay for better UX
-      }
-      // Handle audio response
-      // Handle audio response
-      if (data.audio_url) {
-        // Store the audio URL immediately when we get it
-        allAiAudioUrls.push(data.audio_url);
-        console.log("Stored audio URL:", data.audio_url);
-        console.log("Total stored URLs:", allAiAudioUrls.length);
+         setTimeout(() => { // Keep small delay for UX
+            const aiResponseData = {
+                ...data.ai_response,
+                audio_url: data.audio_url, 
+            };
+            console.log("Adding AI response with data:", aiResponseData);
+            appendMessage(aiResponseData, "ai");
 
-        // Ensure the audio URL has the correct path
-        let audioUrl = data.audio_url;
-        if (
-          !audioUrl.startsWith("/static/audio/") &&
-          !audioUrl.startsWith("http")
-        ) {
-          audioUrl = "/static/audio/" + audioUrl;
-        }
-        aiAudioPlayer.src = audioUrl + `?t=${new Date().getTime()}`;
-
-        updateStatus("Playing AI response...");
-
-        try {
-          await aiAudioPlayer.play();
-
-          aiAudioPlayer.onended = () => {
-            updateStatus("Ready to help you learn");
-          };
-        } catch (playError) {
-          console.error("Error playing audio:", playError);
-          updateStatus("Response ready. Tap to speak again");
-        }
+            // Play audio if URL exists
+            if (data.audio_url) {
+                // allAiAudioUrls.push(data.audio_url); // Already handled by appendMessage if needed for replay all
+                aiAudioPlayer.src = data.audio_url + `?t=${new Date().getTime()}`; // Assuming absolute Supabase URL
+                updateStatus("Playing AI response...");
+                aiAudioPlayer.play().catch(e => {
+                    console.error("Error playing AI audio:", e);
+                    updateStatus("Response ready. Tap to speak again.", true);
+                });
+                aiAudioPlayer.onended = () => {
+                    updateStatus("Ready to help you learn");
+                };
+            } else {
+                 updateStatus("Ready to help you learn");
+            }
+        }, 300);
       } else {
-        updateStatus("Ready to help you learn");
+         updateStatus("Ready to help you learn");
       }
     } catch (error) {
       removeLoadingMessage();
       console.error("Error sending audio or processing response:", error);
       updateStatus(`Error: ${error.message}. Please try again.`, true);
-
-      // Reset status after a few seconds
       setTimeout(() => {
         updateStatus("Ready to help you learn");
       }, 3000);
