@@ -4,6 +4,14 @@ document.addEventListener("DOMContentLoaded", () => {
   const statusMessage = document.getElementById("statusMessage");
   const chatHistory = document.getElementById("chatHistory");
   const aiAudioPlayer = document.getElementById("aiAudioPlayer");
+  const charTooltip = document.getElementById("charTooltip");
+  const tooltipPinyin = document.getElementById("tooltipPinyin");
+  const tooltipTranslation = document.getElementById("tooltipTranslation");
+  const charAudioPlayer = new Audio(); // Dedicated audio player for character TTS
+
+  // Dictionary and TTS are now handled by the Netlify function.
+  // No need for client-side dictionary loading.
+
   document
     .getElementById("replayAllButton")
     .addEventListener("click", replayAllAudio);
@@ -23,25 +31,31 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       const response = await fetch(`${API_BASE_URL}/get_chat_history`);
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ detail: "Failed to load chat history" }));
+        const errorData = await response
+          .json()
+          .catch(() => ({ detail: "Failed to load chat history" }));
         throw new Error(errorData.detail || "Unknown error loading history");
       }
       const history = await response.json();
-      
+
       allAiAudioUrls = []; // Clear before populating from history
       currentChatMessages = history; // Store fetched history
 
-      chatHistory.innerHTML = ''; // Clear any existing welcome message
+      chatHistory.innerHTML = ""; // Clear any existing welcome message
       if (history.length === 0) {
         appendWelcomeMessage(); // Add welcome if history is empty
       } else {
-        history.forEach(item => {
-          appendMessage({ 
-            hanzi: item.hanzi, 
-            pinyin: item.pinyin, 
-            english: item.english, 
-            audio_url: item.audio_url 
-          }, item.role, true); // Pass true for isFromHistory
+        history.forEach((item) => {
+          appendMessage(
+            {
+              hanzi: item.hanzi,
+              pinyin: item.pinyin,
+              english: item.english,
+              audio_url: item.audio_url,
+            },
+            item.role,
+            true
+          ); // Pass true for isFromHistory
         });
       }
       updateStatus("Ready to help you learn");
@@ -55,11 +69,11 @@ document.addEventListener("DOMContentLoaded", () => {
       chatHistory.scrollTo({ top: chatHistory.scrollHeight, behavior: "auto" });
     }, 100);
   }
-  
+
   function appendWelcomeMessage() {
     // Only append if it doesn't exist
     if (!document.querySelector(".welcome-message")) {
-      const welcomeDiv = document.createElement('div');
+      const welcomeDiv = document.createElement("div");
       welcomeDiv.classList.add("welcome-message");
       welcomeDiv.innerHTML = `
         <div class="welcome-icon">🇨🇳</div>
@@ -90,22 +104,23 @@ document.addEventListener("DOMContentLoaded", () => {
         const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
         const filename = `user_audio_${new Date().toISOString()}.webm`;
         audioChunks = [];
-        
+
         // Convert Blob to base64
         const reader = new FileReader();
         reader.readAsDataURL(audioBlob);
         reader.onloadend = async () => {
-          const base64Audio = reader.result.split(',')[1]; // Get base64 part
+          const base64Audio = reader.result.split(",")[1]; // Get base64 part
           await sendAudioToServer(base64Audio, filename);
         };
         reader.onerror = (error) => {
-            console.error("Error converting audio blob to base64:", error);
-            updateStatus("Error processing audio. Please try again.", true);
-            // Reset UI
-            recordButton.classList.remove("recording");
-            recordButton.querySelector(".record-text").textContent = "Tap to speak";
-        }
-        
+          console.error("Error converting audio blob to base64:", error);
+          updateStatus("Error processing audio. Please try again.", true);
+          // Reset UI
+          recordButton.classList.remove("recording");
+          recordButton.querySelector(".record-text").textContent =
+            "Tap to speak";
+        };
+
         stream.getTracks().forEach((track) => track.stop());
       };
 
@@ -177,7 +192,7 @@ document.addEventListener("DOMContentLoaded", () => {
         //   audioUrl = "/static/audio/" + audioUrl;
         // }
         // aiAudioPlayer.src = audioUrl + `?t=${new Date().getTime()}`;
-        
+
         aiAudioPlayer.src = allAiAudioUrls[i] + `?t=${new Date().getTime()}`; // Assuming Supabase URLs are absolute
         await new Promise((resolve, reject) => {
           aiAudioPlayer.onended = resolve;
@@ -205,11 +220,15 @@ document.addEventListener("DOMContentLoaded", () => {
         method: "POST",
       });
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ detail: "Failed to clear chat on server" }));
-        throw new Error(errorData.detail || "Unknown server error during clear");
+        const errorData = await response
+          .json()
+          .catch(() => ({ detail: "Failed to clear chat on server" }));
+        throw new Error(
+          errorData.detail || "Unknown server error during clear"
+        );
       }
       // Clear UI
-      chatHistory.innerHTML = '';
+      chatHistory.innerHTML = "";
       appendWelcomeMessage(); // Add back the welcome message
       allAiAudioUrls = []; // Clear local cache of audio URLs
       currentChatMessages = []; // Clear current chat messages
@@ -224,12 +243,13 @@ document.addEventListener("DOMContentLoaded", () => {
     console.log("appendMessage called with:", { data, type, isFromHistory });
 
     const welcomeMessage = document.querySelector(".welcome-message");
-    if (welcomeMessage && chatHistory.children.length > 1) { // Remove if not the only child
-        welcomeMessage.remove();
-    } else if (welcomeMessage && type) { // Remove if adding any message
-        welcomeMessage.remove();
+    if (welcomeMessage && chatHistory.children.length > 1) {
+      // Remove if not the only child
+      welcomeMessage.remove();
+    } else if (welcomeMessage && type) {
+      // Remove if adding any message
+      welcomeMessage.remove();
     }
-
 
     const messageBubble = document.createElement("div");
     messageBubble.classList.add("response-bubble", `${type}-bubble`);
@@ -249,7 +269,19 @@ document.addEventListener("DOMContentLoaded", () => {
       if (data.hanzi) {
         const hanziP = document.createElement("p");
         hanziP.classList.add("hanzi");
-        hanziP.textContent = data.hanzi;
+        // Wrap each character in a span
+        data.hanzi.split('').forEach(char => {
+          if (char.trim() === '') { // Append spaces directly
+            hanziP.appendChild(document.createTextNode(' '));
+            return;
+          }
+          const charSpan = document.createElement('span');
+          charSpan.textContent = char;
+          charSpan.style.cursor = 'pointer'; // Indicate interactivity
+          charSpan.addEventListener('mouseover', (event) => showCharTooltip(char, event));
+          charSpan.addEventListener('mouseout', hideCharTooltip);
+          hanziP.appendChild(charSpan);
+        });
         mandarinBlock.appendChild(hanziP);
       }
 
@@ -323,7 +355,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (data.hanzi) messageObject.hanzi = data.hanzi;
       if (data.pinyin) messageObject.pinyin = data.pinyin;
       if (data.english) messageObject.english = data.english;
-      if (type === "ai" && data.audio_url) messageObject.audio_url = data.audio_url;
+      if (type === "ai" && data.audio_url)
+        messageObject.audio_url = data.audio_url;
       currentChatMessages.push(messageObject);
       console.log("Updated currentChatMessages:", currentChatMessages);
     }
@@ -381,10 +414,10 @@ document.addEventListener("DOMContentLoaded", () => {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           audio_base64: audioBase64,
           filename: audioFilename,
-          chat_context: currentChatMessages // Send chat history for context
+          chat_context: currentChatMessages, // Send chat history for context
         }),
       });
 
@@ -406,32 +439,33 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       if (data.ai_response) {
-         setTimeout(() => { // Keep small delay for UX
-            const aiResponseData = {
-                ...data.ai_response,
-                audio_url: data.audio_url,
-            };
-            console.log("Adding AI response with data:", aiResponseData);
-            appendMessage(aiResponseData, "ai"); // isFromHistory defaults to false
+        setTimeout(() => {
+          // Keep small delay for UX
+          const aiResponseData = {
+            ...data.ai_response,
+            audio_url: data.audio_url,
+          };
+          console.log("Adding AI response with data:", aiResponseData);
+          appendMessage(aiResponseData, "ai"); // isFromHistory defaults to false
 
-            // Play audio if URL exists
-            if (data.audio_url) {
-                // allAiAudioUrls.push(data.audio_url); // Already handled by appendMessage if needed for replay all
-                aiAudioPlayer.src = data.audio_url + `?t=${new Date().getTime()}`; // Assuming absolute Supabase URL
-                updateStatus("Playing AI response...");
-                aiAudioPlayer.play().catch(e => {
-                    console.error("Error playing AI audio:", e);
-                    updateStatus("Response ready. Tap to speak again.", true);
-                });
-                aiAudioPlayer.onended = () => {
-                    updateStatus("Ready to help you learn");
-                };
-            } else {
-                 updateStatus("Ready to help you learn");
-            }
+          // Play audio if URL exists
+          if (data.audio_url) {
+            // allAiAudioUrls.push(data.audio_url); // Already handled by appendMessage if needed for replay all
+            aiAudioPlayer.src = data.audio_url + `?t=${new Date().getTime()}`; // Assuming absolute Supabase URL
+            updateStatus("Playing AI response...");
+            aiAudioPlayer.play().catch((e) => {
+              console.error("Error playing AI audio:", e);
+              updateStatus("Response ready. Tap to speak again.", true);
+            });
+            aiAudioPlayer.onended = () => {
+              updateStatus("Ready to help you learn");
+            };
+          } else {
+            updateStatus("Ready to help you learn");
+          }
         }, 300);
       } else {
-         updateStatus("Ready to help you learn");
+        updateStatus("Ready to help you learn");
       }
     } catch (error) {
       removeLoadingMessage();
@@ -440,6 +474,92 @@ document.addEventListener("DOMContentLoaded", () => {
       setTimeout(() => {
         updateStatus("Ready to help you learn");
       }, 3000);
+    }
+  }
+
+  let tooltipTimeout; // To manage fade-out delay
+  let activeCharSpan = null; // To track the currently hovered span
+
+  async function showCharTooltip(character, event) {
+    clearTimeout(tooltipTimeout); // Clear any pending hide operations
+    activeCharSpan = event.target; // Store the hovered span
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/get_char_info?char=${encodeURIComponent(character)}`);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: "Failed to fetch character info" }));
+        console.error("Error fetching char info:", response.status, errorData.error);
+        tooltipPinyin.textContent = 'Error';
+        tooltipTranslation.textContent = errorData.error || 'Could not load data.';
+      } else {
+        const data = await response.json();
+        tooltipPinyin.textContent = data.pinyin;
+        // data.english is now a string from the server
+        tooltipTranslation.textContent = data.english; 
+
+        if (data.audioUrl && typeof data.audioUrl === 'string' && data.audioUrl.startsWith('http')) {
+          charAudioPlayer.src = data.audioUrl;
+          // Only play if the mouse is still over the same character span
+          if (activeCharSpan === event.target) {
+            charAudioPlayer.play().catch(err => {
+              if (err.name === 'NotAllowedError') {
+                console.warn("Character audio playback prevented by browser autoplay policy. User interaction needed.");
+              } else {
+                console.error("Error playing char audio:", err);
+              }
+            });
+          }
+        } else {
+          if (data.audioUrl) { // Log if it exists but is not a valid URL
+            console.warn("Invalid or no audio URL provided for character:", character, "URL:", data.audioUrl);
+          } else {
+            // console.log("No audio URL provided for character:", character); // Less verbose for no URL
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Network or parsing error fetching char info:", error);
+      tooltipPinyin.textContent = 'Error';
+      tooltipTranslation.textContent = 'Network error.';
+    }
+
+    // Position tooltip near the mouse cursor
+    const xOffset = 10;
+    const yOffset = 20;
+    // Ensure pageX and pageY are valid
+    const posX = event.pageX || (event.clientX + document.body.scrollLeft + document.documentElement.scrollLeft);
+    const posY = event.pageY || (event.clientY + document.body.scrollTop + document.documentElement.scrollTop);
+
+    charTooltip.style.left = `${posX + xOffset}px`;
+    charTooltip.style.top = `${posY + yOffset}px`;
+    
+    charTooltip.style.display = 'block';
+    // Ensure the tooltip is still meant to be shown (mouse hasn't moved out quickly)
+    if (activeCharSpan === event.target) {
+        setTimeout(() => { // Allow display block to take effect before adding class for transition
+            if (activeCharSpan === event.target) { // Double check before making visible
+                 charTooltip.classList.add('visible');
+            }
+        }, 10);
+    }
+  }
+
+  function hideCharTooltip() {
+    activeCharSpan = null; // Clear the active span
+    tooltipTimeout = setTimeout(() => {
+      charTooltip.classList.remove('visible');
+      // Wait for fade-out transition to complete before setting display to none
+      setTimeout(() => {
+        // Only hide if no new character has become active
+        if (!charTooltip.classList.contains('visible') && !activeCharSpan) { 
+          charTooltip.style.display = 'none';
+        }
+      }, 300); // Corresponds to CSS transition duration
+    }, 100); // Small delay before starting to hide
+
+    if (charAudioPlayer && !charAudioPlayer.paused) {
+      charAudioPlayer.pause();
+      charAudioPlayer.currentTime = 0; // Reset audio
     }
   }
 

@@ -16,6 +16,7 @@
     "@elevenlabs/elevenlabs-js": "^2.1.0",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@supabase/supabase-js": "^2.49.9",
+    "@tykok/cedict-dictionary": "^2.7.14",
     "dotenv": "^16.5.0",
     "edge-tts-node": "^1.5.7",
     "elevenlabs": "^1.59.0",
