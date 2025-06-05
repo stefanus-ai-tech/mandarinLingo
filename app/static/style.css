@@ -206,7 +206,7 @@ body {
 
 .hanzi {
   font-size: 24px;
-  font-weight: 600;
+  font-weight: normal; /* Changed from 600 to normal */
   margin-bottom: 0;
   line-height: 1.2;
 }
