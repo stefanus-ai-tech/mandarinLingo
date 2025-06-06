@@ -278,8 +278,11 @@ document.addEventListener("DOMContentLoaded", () => {
           const charSpan = document.createElement('span');
           charSpan.textContent = char;
           charSpan.style.cursor = 'pointer'; // Indicate interactivity
-          charSpan.addEventListener('mouseover', (event) => showCharTooltip(char, event));
-          charSpan.addEventListener('mouseout', hideCharTooltip);
+          // Changed from mouseover/mouseout to click
+          charSpan.addEventListener('click', (event) => {
+            event.stopPropagation(); // Prevent document click listener from immediately hiding
+            handleCharacterClick(char, charSpan);
+          });
           hanziP.appendChild(charSpan);
         });
         mandarinBlock.appendChild(hanziP);
@@ -477,12 +480,27 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  let tooltipTimeout; // To manage fade-out delay
-  let activeCharSpan = null; // To track the currently hovered span
+  // let tooltipTimeout; // No longer needed for click logic
+  let activeCharSpan = null; // To track the span for which the tooltip is currently shown
 
-  async function showCharTooltip(character, event) {
-    clearTimeout(tooltipTimeout); // Clear any pending hide operations
-    activeCharSpan = event.target; // Store the hovered span
+  // New handler for character clicks
+  async function handleCharacterClick(character, clickedSpan) {
+    if (activeCharSpan === clickedSpan) {
+      // Clicked the same character for which tooltip is visible, so hide it
+      hideCharTooltip();
+    } else {
+      // Show tooltip for the new character (or if no tooltip is currently visible)
+      await displayCharTooltip(character, clickedSpan);
+    }
+  }
+
+  // Renamed and refactored from showCharTooltip
+  async function displayCharTooltip(character, spanElement) {
+    // If another tooltip is visible, hide it first (optional, good UX)
+    if (activeCharSpan && activeCharSpan !== spanElement) {
+        hideCharTooltip(); // Hide previous before showing new
+    }
+    activeCharSpan = spanElement; // Set the new active span
 
     try {
       const response = await fetch(`${API_BASE_URL}/get_char_info?char=${encodeURIComponent(character)}`);
@@ -499,8 +517,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (data.audioUrl && typeof data.audioUrl === 'string' && data.audioUrl.startsWith('http')) {
           charAudioPlayer.src = data.audioUrl;
-          // Only play if the mouse is still over the same character span
-          if (activeCharSpan === event.target) {
+          // Only play if the tooltip is being shown for the current activeCharSpan
+          if (activeCharSpan === spanElement) {
             charAudioPlayer.play().catch(err => {
               if (err.name === 'NotAllowedError') {
                 console.warn("Character audio playback prevented by browser autoplay policy. User interaction needed.");
@@ -523,45 +541,54 @@ document.addEventListener("DOMContentLoaded", () => {
       tooltipTranslation.textContent = 'Network error.';
     }
 
-    // Position tooltip near the mouse cursor
-    const xOffset = 10;
-    const yOffset = 20;
-    // Ensure pageX and pageY are valid
-    const posX = event.pageX || (event.clientX + document.body.scrollLeft + document.documentElement.scrollLeft);
-    const posY = event.pageY || (event.clientY + document.body.scrollTop + document.documentElement.scrollTop);
+    // Position tooltip below the character span
+    const rect = spanElement.getBoundingClientRect();
+    const xOffset = 0; 
+    const yOffset = 5; // 5px below the character
 
-    charTooltip.style.left = `${posX + xOffset}px`;
-    charTooltip.style.top = `${posY + yOffset}px`;
+    charTooltip.style.left = `${rect.left + window.scrollX + xOffset}px`;
+    charTooltip.style.top = `${rect.bottom + window.scrollY + yOffset}px`;
     
     charTooltip.style.display = 'block';
-    // Ensure the tooltip is still meant to be shown (mouse hasn't moved out quickly)
-    if (activeCharSpan === event.target) {
-        setTimeout(() => { // Allow display block to take effect before adding class for transition
-            if (activeCharSpan === event.target) { // Double check before making visible
-                 charTooltip.classList.add('visible');
-            }
-        }, 10);
-    }
+    // Use a slight delay for CSS transition if 'visible' class handles opacity/transform
+    setTimeout(() => {
+        if (activeCharSpan === spanElement) { // Check if still the active one
+             charTooltip.classList.add('visible');
+        }
+    }, 10); // Allow display:block to take effect
   }
 
   function hideCharTooltip() {
-    activeCharSpan = null; // Clear the active span
-    tooltipTimeout = setTimeout(() => {
-      charTooltip.classList.remove('visible');
-      // Wait for fade-out transition to complete before setting display to none
-      setTimeout(() => {
-        // Only hide if no new character has become active
-        if (!charTooltip.classList.contains('visible') && !activeCharSpan) { 
-          charTooltip.style.display = 'none';
+    if (!activeCharSpan) return; // Already hidden or nothing to hide
+
+    charTooltip.classList.remove('visible');
+    
+    // Wait for fade-out transition (if any) before setting display to none
+    // This timeout should match your CSS transition duration for the tooltip visibility
+    setTimeout(() => {
+        // Only truly hide if it wasn't re-shown for another char quickly
+        if (!charTooltip.classList.contains('visible')) { 
+            charTooltip.style.display = 'none';
         }
-      }, 300); // Corresponds to CSS transition duration
-    }, 100); // Small delay before starting to hide
+    }, 300); // Adjust to match CSS transition, e.g., 0.3s
+
+    activeCharSpan = null; // Clear the active span
 
     if (charAudioPlayer && !charAudioPlayer.paused) {
       charAudioPlayer.pause();
       charAudioPlayer.currentTime = 0; // Reset audio
     }
   }
+
+  // Global click listener to hide tooltip when clicking outside
+  document.addEventListener('click', (event) => {
+    if (activeCharSpan && charTooltip.style.display === 'block') {
+      // If the click is not on the active character span AND not within the tooltip itself
+      if (activeCharSpan !== event.target && !charTooltip.contains(event.target)) {
+        hideCharTooltip();
+      }
+    }
+  });
 
   // Add keyboard shortcut for spacebar to record
   document.addEventListener("keydown", (e) => {

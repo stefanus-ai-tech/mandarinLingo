@@ -85,11 +85,11 @@ async function maximizeAudioLoudness(inputPath, outputPath) {
       // First pass: Analyze audio levels
       .audioFilters([
         // Normalize audio to -1dB peak (maximizes volume without clipping)
-        "loudnorm=I=-16:TP=-1.5:LRA=11:measured_I=-16:measured_LRA=11:measured_TP=-1.5:measured_thresh=-26.0:offset=0.0",
+        "loudnorm=I=-16:TP=-0.1:LRA=11:measured_I=-16:measured_LRA=11:measured_TP=-0.1:measured_thresh=-26.0:offset=0.0", // TP changed to -0.1
         // Additional dynamic range compression for maximum loudness
         "acompressor=threshold=0.089:ratio=9:attack=200:release=1000:makeup=2",
         // Final limiter to prevent any clipping
-        "alimiter=level_in=1:level_out=0.95:limit=0.95:attack=7:release=50:asc=1",
+        "alimiter=level_in=1:level_out=0.988:limit=0.988:attack=7:release=50:asc=1", // limit and level_out changed for -0.1dB
       ])
       .audioCodec("libmp3lame")
       .audioBitrate("128k")
@@ -137,7 +137,7 @@ async function maximizeAudioLoudnessSimple(inputPath, outputPath) {
         // Simple volume normalization - increases volume to maximum without clipping
         "volume=enable='between(t,0,600)':volume=3.0",
         // Hard limiter to prevent distortion
-        "alimiter=level_in=1:level_out=0.98:limit=0.98",
+        "alimiter=level_in=1:level_out=0.988:limit=0.988", // limit and level_out changed for -0.1dB
       ])
       .audioCodec("libmp3lame")
       .audioBitrate("128k")
@@ -352,6 +352,7 @@ async function getAiResponseWithAudioSupabase(userText, chatContext = []) {
             output_format: "mp3_44100_128",
             text: mandarinResponseText,
             model_id: "eleven_turbo_v2_5",
+            loudness: 1, // Set loudness to maximum
           }),
           30000 // 30 second timeout
         );
